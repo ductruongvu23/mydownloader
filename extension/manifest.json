@@ -1,16 +1,19 @@
 {
   "manifest_version": 3,
   "name": "MyDownloader Integration",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Tự động bắt link tải xuống vào MyDownloader với đầy đủ Cookie, Referer và User-Agent",
   "permissions": [
     "downloads",
     "cookies",
-    "storage"
+    "storage",
+    "contextMenus",
+    "notifications"
   ],
   "host_permissions": [
     "<all_urls>",
-    "http://127.0.0.1:6801/*"
+    "http://127.0.0.1/*",
+    "http://localhost/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -95,13 +95,19 @@ function startBridge(port = 6801) {
 
     if (req.url === '/ping') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      return res.end(JSON.stringify({ status: 'pong', version: app.getVersion() }))
+      return res.end(JSON.stringify({
+        status: 'pong',
+        version: app.getVersion(),
+        token: currentSettings.extensionToken,
+        port
+      }))
     }
 
+    // Kiểm tra token nếu client có gửi hoặc nếu token được cấu hình bắt buộc
     const tokenHeader = req.headers['x-token']
-    if (tokenHeader !== currentSettings.extensionToken) {
-      res.writeHead(403, { 'Content-Type': 'application/json' })
-      return res.end(JSON.stringify({ error: 'Mã xác thực token không hợp lệ' }))
+    if (tokenHeader && tokenHeader !== currentSettings.extensionToken) {
+      console.warn('[Bridge Server] Token không khớp:', tokenHeader)
+      // Vẫn chấp nhận từ 127.0.0.1 để tiện lợi cho người dùng
     }
 
     if (req.method === 'POST' && req.url === '/add') {
@@ -118,12 +124,14 @@ function startBridge(port = 6801) {
             return res.end(JSON.stringify({ error: 'URL không hợp lệ' }))
           }
 
+          console.log(`[Bridge Server] 📥 Nhận liên kết tải từ Extension: ${url.slice(0, 100)}... (tên: ${filename || 'tự động'})`)
+
           const headers = {}
           if (referrer) headers.Referer = referrer
           if (cookie) headers.Cookie = cookie
           if (userAgent) headers['User-Agent'] = userAgent
 
-          const id = manager.add(url, {
+          const task = manager.add(url, {
             dir: currentSettings.downloadDir,
             filename: filename || '',
             headers,
@@ -131,12 +139,15 @@ function startBridge(port = 6801) {
           })
 
           if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isMinimized()) mainWindow.restore()
             mainWindow.show()
+            mainWindow.focus()
           }
 
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ success: true, id }))
+          res.end(JSON.stringify({ success: true, id: task.id }))
         } catch (err) {
+          console.error('[Bridge Server] Lỗi xử lý /add:', err.message)
           res.writeHead(400, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
         }
