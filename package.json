@@ -1,0 +1,32 @@
+{
+  "name": "mydownloader",
+  "version": "1.0.0",
+  "description": "Trình quản lý tải xuống đa luồng Electron với lõi HTTP kiểu IDM và giao diện Motrix",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "author": "MyDownloader Team",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "build:win": "npm run build && electron-builder --win",
+    "start": "electron .",
+    "preview": "electron-vite preview",
+    "test:engine": "node tests/http-engine.test.mjs"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "element-plus": "^2.8.3",
+    "pinia": "^2.2.2",
+    "vue": "^3.5.8",
+    "vue-i18n": "^9.14.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.1.4",
+    "electron": "^32.1.2",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "isomorphic-git": "^1.42.2",
+    "vite": "^5.4.6"
+  }
+}
