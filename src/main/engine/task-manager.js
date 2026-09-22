@@ -16,7 +16,36 @@ class TaskManager extends EventEmitter {
     this.load()
   }
 
-  add(url, { dir, filename, headers = {}, threads = 8 } = {}) {
+  checkDuplicate(url) {
+    if (!url) return null
+    for (const t of this.tasks.values()) {
+      if (t.url === url) {
+        if (['active', 'waiting'].includes(t.status)) {
+          return { type: 'downloading', task: this.view(t) }
+        }
+        if (t.status === 'done') {
+          const fileExists = t.dest ? fs.existsSync(t.dest) : false
+          return { type: 'done', task: this.view(t), fileExists }
+        }
+      }
+    }
+    return null
+  }
+
+  add(url, { dir, filename, headers = {}, threads = 8, force = false } = {}) {
+    // Kiểm tra trùng lặp để tránh tải lại hoặc chạy ngầm nhiều task cùng URL gây ngốn RAM
+    const dup = this.checkDuplicate(url)
+    if (dup && !force) {
+      if (dup.type === 'downloading') {
+        console.log('[TaskManager] ⚠️ URL đang được tải xuống, không thêm task trùng:', url.slice(0, 80))
+        return { ...dup.task, isDuplicate: true, duplicateReason: 'downloading' }
+      }
+      if (dup.type === 'done' && dup.fileExists) {
+        console.log('[TaskManager] ℹ️ URL đã tải xong trước đó và tệp còn tồn tại:', url.slice(0, 80))
+        return { ...dup.task, isDuplicate: true, duplicateReason: 'done' }
+      }
+    }
+
     const id = crypto.randomUUID()
     let initialName = filename || ''
     if (!initialName) {
@@ -184,6 +213,54 @@ class TaskManager extends EventEmitter {
     }
     this.save()
     this.emit('cleared', doneIds)
+  }
+
+  async clearAll({ deleteFiles = false } = {}) {
+    const allTasks = [...this.tasks.values()]
+    const allIds = []
+    for (const t of allTasks) {
+      allIds.push(t.id)
+      try {
+        await t.dl?.stop()
+      } catch {}
+      if (deleteFiles && t.dest) {
+        for (const f of [t.dest, t.dest + '.part.json']) {
+          try {
+            await fsp.rm(f, { force: true })
+          } catch {}
+        }
+      }
+    }
+    this.tasks.clear()
+    this.save()
+    this.emit('cleared', allIds)
+    this.pump()
+    return allIds
+  }
+
+  async removeBatch(ids = [], { deleteFiles = false } = {}) {
+    if (!Array.isArray(ids) || ids.length === 0) return []
+    const removedIds = []
+    for (const id of ids) {
+      const t = this.tasks.get(id)
+      if (!t) continue
+      try {
+        await t.dl?.stop()
+      } catch {}
+      this.tasks.delete(id)
+      removedIds.push(id)
+      if (deleteFiles && t.dest) {
+        for (const f of [t.dest, t.dest + '.part.json']) {
+          try {
+            await fsp.rm(f, { force: true })
+          } catch {}
+        }
+      }
+    }
+    this.save()
+    this.emit('cleared', removedIds)
+    this.pump()
+    return removedIds
   }
 
   async remove(id, { deleteFile = false } = {}) {

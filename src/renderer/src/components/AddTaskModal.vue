@@ -142,6 +142,10 @@ const props = defineProps({
   modelValue: {
     type: Boolean,
     default: false
+  },
+  initialData: {
+    type: Object,
+    default: null
   }
 })
 
@@ -172,6 +176,20 @@ watch(
     if (val) {
       targetDir.value = settingsStore.downloadDir || ''
       threads.value = settingsStore.threads || 8
+      if (props.initialData) {
+        if (props.initialData.url) urlText.value = props.initialData.url
+        if (props.initialData.filename) customFilename.value = props.initialData.filename
+        if (props.initialData.cookies) cookie.value = props.initialData.cookies
+        if (props.initialData.threads) threads.value = props.initialData.threads
+        if (props.initialData.headers?.Referer) referer.value = props.initialData.headers.Referer
+        if (props.initialData.headers?.['User-Agent']) userAgent.value = props.initialData.headers['User-Agent']
+      }
+    } else {
+      urlText.value = ''
+      customFilename.value = ''
+      cookie.value = ''
+      referer.value = ''
+      userAgent.value = ''
     }
   }
 )

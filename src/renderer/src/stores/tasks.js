@@ -5,7 +5,8 @@ export const useTasksStore = defineStore('tasks', {
   state: () => ({
     items: {},
     currentCategory: 'all', // 'all' | 'downloading' | 'waiting' | 'stopped' | 'done' | 'settings'
-    searchQuery: ''
+    searchQuery: '',
+    selectedIds: []
   }),
 
   getters: {
@@ -65,6 +66,19 @@ export const useTasksStore = defineStore('tasks', {
 
     totalSpeed() {
       return this.downloadingTasks.reduce((acc, t) => acc + (t.speed || 0), 0)
+    },
+
+    selectedCount: (state) => state.selectedIds.length,
+
+    isAllSelected() {
+      const list = this.filteredTasks
+      if (list.length === 0) return false
+      return list.every((t) => this.selectedIds.includes(t.id))
+    },
+
+    isIndeterminate() {
+      const count = this.selectedCount
+      return count > 0 && !this.isAllSelected
     }
   },
 
@@ -146,6 +160,66 @@ export const useTasksStore = defineStore('tasks', {
       if (!window.api) return
       await window.api.remove(id, deleteFile)
       delete this.items[id]
+      const idx = this.selectedIds.indexOf(id)
+      if (idx > -1) this.selectedIds.splice(idx, 1)
+    },
+
+    toggleSelect(id) {
+      const idx = this.selectedIds.indexOf(id)
+      if (idx > -1) {
+        this.selectedIds.splice(idx, 1)
+      } else {
+        this.selectedIds.push(id)
+      }
+    },
+
+    selectAll() {
+      if (this.isAllSelected) {
+        this.selectedIds = []
+      } else {
+        this.selectedIds = this.filteredTasks.map((t) => t.id)
+      }
+    },
+
+    clearSelection() {
+      this.selectedIds = []
+    },
+
+    async deleteSelected(deleteFile = false) {
+      if (!window.api || this.selectedIds.length === 0) return
+      const ids = [...this.selectedIds]
+      await window.api.removeBatch(ids, deleteFile)
+      for (const id of ids) {
+        delete this.items[id]
+      }
+      this.selectedIds = []
+    },
+
+    async deleteAll(deleteFile = false) {
+      if (!window.api) return
+      await window.api.clearAll(deleteFile)
+      this.items = {}
+      this.selectedIds = []
+    },
+
+    async pauseSelected() {
+      if (!window.api || this.selectedIds.length === 0) return
+      for (const id of this.selectedIds) {
+        const t = this.items[id]
+        if (t && ['active', 'waiting'].includes(t.status)) {
+          await window.api.pause(id)
+        }
+      }
+    },
+
+    async resumeSelected() {
+      if (!window.api || this.selectedIds.length === 0) return
+      for (const id of this.selectedIds) {
+        const t = this.items[id]
+        if (t && ['paused', 'error'].includes(t.status)) {
+          await window.api.resume(id)
+        }
+      }
     },
 
     async showInFolder(dest) {

@@ -1,15 +1,24 @@
 {
   "name": "mydownloader",
-  "version": "1.0.0",
-  "description": "Trình quản lý tải xuống đa luồng Electron với lõi HTTP kiểu IDM và giao diện Motrix",
+  "version": "1.0.1",
+  "description": "Trình quản lý tải xuống đa luồng tốc độ cao, giao diện hiện đại và mã nguồn mở cho Windows",
   "type": "module",
   "main": "./out/main/index.js",
-  "author": "MyDownloader Team",
+  "author": "ductruongvu23",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ductruongvu23/mydownloader.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ductruongvu23/mydownloader/issues"
+  },
+  "homepage": "https://github.com/ductruongvu23/mydownloader#readme",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "build:win": "npm run build && electron-builder --win",
+    "publish:win": "npm run build && electron-builder --win -p always",
     "start": "electron .",
     "preview": "electron-vite preview",
     "test:engine": "node tests/http-engine.test.mjs"

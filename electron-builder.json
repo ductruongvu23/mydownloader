@@ -4,14 +4,32 @@
   "directories": {
     "output": "dist"
   },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "ductruongvu23",
+      "repo": "mydownloader"
+    }
+  ],
   "files": [
     "out/**/*",
     "resources/**/*"
   ],
+  "extraResources": [
+    {
+      "from": "resources",
+      "to": "resources"
+    }
+  ],
   "win": {
+    "icon": "resources/icon.ico",
     "target": [
       {
         "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
         "arch": ["x64"]
       }
     ]

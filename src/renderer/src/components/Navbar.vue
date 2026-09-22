@@ -24,6 +24,12 @@
             <el-icon :size="16"><Delete /></el-icon>
           </button>
         </el-tooltip>
+
+        <el-tooltip content="Xóa tất cả tác vụ" placement="bottom">
+          <button class="icon-btn text-danger" @click="handleClearAll">
+            <el-icon :size="16"><DeleteFilled /></el-icon>
+          </button>
+        </el-tooltip>
       </div>
     </div>
 
@@ -38,6 +44,12 @@
           <el-icon><Search /></el-icon>
         </template>
       </el-input>
+
+      <el-tooltip content="Kiểm tra cập nhật" placement="bottom">
+        <button class="icon-btn" @click="openUpdate">
+          <el-icon :size="16"><Refresh /></el-icon>
+        </button>
+      </el-tooltip>
 
       <el-tooltip
         :content="settingsStore.theme === 'dark' ? 'Chuyển sang giao diện Sáng' : 'Chuyển sang giao diện Tối'"
@@ -59,6 +71,8 @@ import { useI18n } from 'vue-i18n'
 import { useTasksStore } from '../stores/tasks'
 import { useSettingsStore } from '../stores/settings'
 
+import { ElMessageBox } from 'element-plus'
+
 defineEmits(['open-add-modal'])
 const { t } = useI18n()
 const tasksStore = useTasksStore()
@@ -67,6 +81,21 @@ const settingsStore = useSettingsStore()
 function toggleTheme() {
   const next = settingsStore.theme === 'dark' ? 'light' : 'dark'
   settingsStore.update({ theme: next })
+}
+
+function openUpdate() {
+  tasksStore.currentCategory = 'settings'
+}
+
+async function handleClearAll() {
+  try {
+    await ElMessageBox.confirm('Bạn có chắc chắn muốn xóa toàn bộ danh sách tác vụ tải xuống?', 'Xác nhận xóa tất cả', {
+      confirmButtonText: 'Xóa tất cả',
+      cancelButtonText: 'Hủy',
+      type: 'warning'
+    })
+    await tasksStore.deleteAll(false)
+  } catch {}
 }
 </script>
 
@@ -123,6 +152,11 @@ function toggleTheme() {
 .icon-btn:hover {
   background-color: var(--bg-card-hover);
   color: var(--text-primary);
+}
+
+.icon-btn.text-danger:hover {
+  color: #f87171;
+  background-color: rgba(248, 113, 113, 0.12);
 }
 
 .right-search {

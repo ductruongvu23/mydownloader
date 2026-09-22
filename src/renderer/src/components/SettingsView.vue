@@ -138,6 +138,89 @@
           </ol>
         </div>
       </section>
+
+      <!-- MỤC 4: CẬP NHẬT PHẦN MỀM -->
+      <section class="settings-section">
+        <h3 class="section-title">Cập nhật phần mềm</h3>
+
+        <div class="form-row">
+          <div class="form-label">
+            <span class="label-text">Phiên bản hiện tại</span>
+          </div>
+          <div class="form-control">
+            <el-tag type="info" size="large" effect="plain" round>v{{ currentAppVersion }}</el-tag>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-label">
+            <span class="label-text">Kiểm tra phiên bản mới trên GitHub</span>
+            <div v-if="lastCheckStatus" class="update-subtext">
+              {{ lastCheckStatus }}
+            </div>
+          </div>
+          <div class="form-control">
+            <el-button
+              type="primary"
+              :loading="checkingUpdate"
+              @click="checkUpdates"
+            >
+              <el-icon class="el-icon--left"><Refresh /></el-icon>
+              Kiểm tra cập nhật
+            </el-button>
+          </div>
+        </div>
+
+        <!-- Khung hiển thị khi có bản cập nhật mới -->
+        <div v-if="updateInfo && updateInfo.updateAvailable" class="update-card">
+          <div class="update-header-info">
+            <div class="update-badge">
+              <el-icon color="#38bdf8" :size="18"><Check /></el-icon>
+              <span class="update-name">Có phiên bản mới: <b>v{{ updateInfo.latestVersion }}</b></span>
+            </div>
+            <span v-if="updateInfo.assetSize" class="update-size">
+              {{ formatBytes(updateInfo.assetSize) }}
+            </span>
+          </div>
+
+          <div v-if="updateInfo.releaseNotes" class="update-notes-box">
+            <div class="notes-heading">Nội dung cập nhật:</div>
+            <pre class="notes-text">{{ updateInfo.releaseNotes }}</pre>
+          </div>
+
+          <!-- Tiến trình tải -->
+          <div v-if="downloadingUpdate" class="update-progress-wrap">
+            <el-progress :percentage="downloadProgress" :status="downloadProgress === 100 ? 'success' : ''" />
+            <div class="progress-details">
+              <span>Đang tải gói cập nhật... {{ downloadProgress }}%</span>
+              <span v-if="downloadReceived && downloadTotal">
+                {{ formatBytes(downloadReceived) }} / {{ formatBytes(downloadTotal) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="update-action-row">
+            <el-button
+              v-if="!downloadedInstallerPath"
+              type="success"
+              :loading="downloadingUpdate"
+              @click="startDownloadUpdate"
+            >
+              <el-icon class="el-icon--left"><Download /></el-icon>
+              {{ downloadingUpdate ? 'Đang tải bản cập nhật...' : 'Tự động tải về & Cập nhật' }}
+            </el-button>
+
+            <el-button
+              v-else
+              type="primary"
+              @click="installAndRelaunch"
+            >
+              <el-icon class="el-icon--left"><VideoPlay /></el-icon>
+              Cài đặt & Khởi động lại ngay
+            </el-button>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -152,6 +235,16 @@ const { t } = useI18n()
 const settingsStore = useSettingsStore()
 
 const speedLimitKB = ref(0)
+const currentAppVersion = ref('1.0.1')
+const checkingUpdate = ref(false)
+const lastCheckStatus = ref('')
+const updateInfo = ref(null)
+const downloadingUpdate = ref(false)
+const downloadProgress = ref(0)
+const downloadReceived = ref(0)
+const downloadTotal = ref(0)
+const downloadedInstallerPath = ref('')
+
 const form = reactive({
   downloadDir: '',
   language: 'vi',
@@ -178,6 +271,13 @@ onMounted(() => {
   })
   speedLimitKB.value = Math.round((settingsStore.speedLimit || 0) / 1024)
 })
+
+function formatBytes(b) {
+  if (!b || b <= 0) return '0 B'
+  const u = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(b) / Math.log(1024))
+  return `${(b / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${u[i]}`
+}
 
 async function chooseDir() {
   const dir = await settingsStore.chooseDirectory()
@@ -206,6 +306,79 @@ async function save() {
   })
   if (ok) {
     ElMessage.success(t('settings.saved'))
+  }
+}
+
+async function checkUpdates() {
+  if (!window.api?.checkUpdate) {
+    ElMessage.info('Chức năng cập nhật hoạt động trong ứng dụng đã cài đặt.')
+    return
+  }
+  checkingUpdate.value = true
+  lastCheckStatus.value = 'Đang kết nối GitHub kiểm tra bản phát hành mới...'
+  try {
+    const res = await window.api.checkUpdate()
+    updateInfo.value = res
+    if (res.error) {
+      lastCheckStatus.value = `Lỗi: ${res.error}`
+      ElMessage.error(`Kiểm tra cập nhật thất bại: ${res.error}`)
+    } else if (res.updateAvailable) {
+      lastCheckStatus.value = `Đã tìm thấy phiên bản mới v${res.latestVersion}!`
+      ElMessage.success(`Có phiên bản cập nhật mới: v${res.latestVersion}!`)
+    } else {
+      lastCheckStatus.value = res.message || `Bạn đang sử dụng phiên bản mới nhất (v${res.currentVersion}).`
+      ElMessage.success(lastCheckStatus.value)
+    }
+  } catch (err) {
+    lastCheckStatus.value = `Lỗi: ${err.message}`
+    ElMessage.error(lastCheckStatus.value)
+  } finally {
+    checkingUpdate.value = false
+  }
+}
+
+async function startDownloadUpdate() {
+  if (!updateInfo.value?.downloadUrl) {
+    ElMessage.warning('Không tìm thấy liên kết tệp cài đặt trên GitHub!')
+    return
+  }
+  downloadingUpdate.value = true
+  downloadProgress.value = 0
+
+  let removeListener = null
+  if (window.api?.onUpdateProgress) {
+    removeListener = window.api.onUpdateProgress((p) => {
+      downloadProgress.value = p.percent || 0
+      downloadReceived.value = p.receivedBytes || 0
+      downloadTotal.value = p.totalBytes || 0
+    })
+  }
+
+  try {
+    const res = await window.api.downloadUpdate({
+      downloadUrl: updateInfo.value.downloadUrl,
+      assetName: updateInfo.value.assetName
+    })
+    if (res.success) {
+      downloadedInstallerPath.value = res.destPath
+      ElMessage.success('Đã tải xong bản cập nhật! Nhấn Cài đặt & Khởi động lại.')
+    } else {
+      ElMessage.error(`Tải bản cập nhật thất bại: ${res.error}`)
+    }
+  } catch (err) {
+    ElMessage.error(`Lỗi tải: ${err.message}`)
+  } finally {
+    downloadingUpdate.value = false
+    if (removeListener) removeListener()
+  }
+}
+
+async function installAndRelaunch() {
+  if (!downloadedInstallerPath.value) return
+  try {
+    await window.api.installUpdate(downloadedInstallerPath.value)
+  } catch (err) {
+    ElMessage.error(`Lỗi khởi chạy cài đặt: ${err.message}`)
   }
 }
 </script>
@@ -282,6 +455,12 @@ async function save() {
   color: var(--text-primary);
 }
 
+.update-subtext {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
 .form-control {
   display: flex;
   align-items: center;
@@ -322,5 +501,76 @@ async function save() {
   font-size: 12.5px;
   color: var(--text-secondary);
   line-height: 1.6;
+}
+
+.update-card {
+  background: rgba(14, 165, 233, 0.05);
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.update-header-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.update-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-name {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.update-size {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.update-notes-box {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.notes-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.notes-text {
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.update-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.update-action-row {
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

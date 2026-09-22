@@ -1,5 +1,13 @@
 <template>
-  <div class="task-card" :class="[task.status]" @mouseenter="hovered = true" @mouseleave="hovered = false">
+  <div class="task-card" :class="[task.status, { 'is-selected': isSelected }]" @mouseenter="hovered = true" @mouseleave="hovered = false">
+    <!-- Checkbox tích chọn -->
+    <div class="card-select" @click.stop>
+      <el-checkbox
+        :model-value="isSelected"
+        @update:model-value="tasksStore.toggleSelect(task.id)"
+      />
+    </div>
+
     <!-- File icon -->
     <div class="card-icon" :class="fileType">
       <el-icon :size="22"><component :is="fileTypeIcon" /></el-icon>
@@ -129,6 +137,7 @@ const tasksStore = useTasksStore()
 const hovered = ref(false)
 const showDeleteDialog = ref(false)
 const deleteWithFile = ref(false)
+const isSelected = computed(() => tasksStore.selectedIds.includes(props.task.id))
 
 const displayName = computed(() => {
   if (props.task.name && props.task.name !== 'Đang kết nối...') return props.task.name
@@ -230,6 +239,19 @@ async function confirmDelete() {
   animation: slide-in 0.2s ease both;
   position: relative;
   overflow: hidden;
+  align-items: center;
+}
+
+.task-card.is-selected {
+  border-color: var(--accent-color);
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.card-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-right: 4px;
 }
 
 /* Glow border khi active */

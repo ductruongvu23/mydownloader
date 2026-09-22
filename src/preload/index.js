@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('api', {
   pauseAll: () => ipcRenderer.invoke('tasks:pauseAll'),
   resumeAll: () => ipcRenderer.invoke('tasks:resumeAll'),
   clearDone: () => ipcRenderer.invoke('tasks:clearDone'),
+  clearAll: (deleteFile = false) => ipcRenderer.invoke('tasks:clearAll', deleteFile),
+  removeBatch: (ids, deleteFile = false) => ipcRenderer.invoke('tasks:removeBatch', ids, deleteFile),
+  checkDuplicate: (url) => ipcRenderer.invoke('tasks:checkDuplicate', url),
   remove: (id, deleteFile) => ipcRenderer.invoke('tasks:remove', id, deleteFile),
 
   setSpeedLimit: (bps) => ipcRenderer.invoke('settings:speedLimit', bps),
@@ -19,6 +22,28 @@ contextBridge.exposeInMainWorld('api', {
 
   showInFolder: (p) => ipcRenderer.invoke('shell:show', p),
   openFile: (p) => ipcRenderer.invoke('shell:open', p),
+
+  // Auto-Updater APIs
+  checkUpdate: () => ipcRenderer.invoke('updater:check'),
+  downloadUpdate: (payload) => ipcRenderer.invoke('updater:download', payload),
+  installUpdate: (installerPath) => ipcRenderer.invoke('updater:install', installerPath),
+  onUpdateProgress: (cb) => {
+    const handler = (_e, p) => cb(p)
+    ipcRenderer.on('updater:progress', handler)
+    return () => ipcRenderer.removeListener('updater:progress', handler)
+  },
+
+  // Extension Bridge Event Listeners
+  onLinkReceived: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('bridge:link-received', handler)
+    return () => ipcRenderer.removeListener('bridge:link-received', handler)
+  },
+  onDuplicateDetected: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('bridge:duplicate-detected', handler)
+    return () => ipcRenderer.removeListener('bridge:duplicate-detected', handler)
+  },
 
   onUpdate: (cb) => {
     const handler = (_e, t) => cb(t)

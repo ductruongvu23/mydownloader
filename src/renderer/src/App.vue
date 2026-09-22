@@ -11,8 +11,8 @@
 
         <!-- Khi xem Danh sách tác vụ -->
         <template v-else>
-          <Navbar @open-add-modal="showAddModal = true" />
-          <TaskList @open-add-modal="showAddModal = true" />
+          <Navbar @open-add-modal="openAddModalManual" />
+          <TaskList @open-add-modal="openAddModalManual" />
         </template>
       </div>
     </div>
@@ -21,12 +21,17 @@
     <StatusBar />
 
     <!-- MODAL THÊM TÁC VỤ TẢI -->
-    <AddTaskModal v-model="showAddModal" />
+    <AddTaskModal
+      v-model="showAddModal"
+      :initial-data="incomingDownload"
+      @update:model-value="onModalVisibleChange"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { ElNotification } from 'element-plus'
 import Sidebar from './components/Sidebar.vue'
 import Navbar from './components/Navbar.vue'
 import TaskList from './components/TaskList.vue'
@@ -40,10 +45,42 @@ const tasksStore = useTasksStore()
 const settingsStore = useSettingsStore()
 
 const showAddModal = ref(false)
+const incomingDownload = ref(null)
+
+function openAddModalManual() {
+  incomingDownload.value = null
+  showAddModal.value = true
+}
+
+function onModalVisibleChange(val) {
+  if (!val) {
+    incomingDownload.value = null
+  }
+}
 
 onMounted(async () => {
   await settingsStore.init()
   await tasksStore.init()
+
+  // Bắt sự kiện khi Extension gửi link sang
+  if (window.api?.onLinkReceived) {
+    window.api.onLinkReceived((data) => {
+      incomingDownload.value = data
+      showAddModal.value = true
+    })
+  }
+
+  // Báo khi phát hiện link trùng lặp từ trình duyệt
+  if (window.api?.onDuplicateDetected) {
+    window.api.onDuplicateDetected((data) => {
+      ElNotification({
+        title: 'Liên kết đã có trong danh sách',
+        message: `Tệp "${data.filename || data.url}" đã tồn tại (${data.status === 'done' ? 'đã hoàn tất' : 'đang xử lý'}). Đã bỏ qua để tránh ngốn RAM.`,
+        type: 'warning',
+        duration: 4500
+      })
+    })
+  }
 })
 </script>
 
