@@ -1,6 +1,6 @@
-// scripts/release.cjs - Quy trình đóng gói và phát hành tự động lên GitHub Release
 const fs = require('fs')
 const path = require('path')
+const https = require('https')
 const { execSync } = require('child_process')
 
 // 1. Tự động nạp GH_TOKEN từ process.env hoặc file .env cục bộ
@@ -58,8 +58,8 @@ Phiên bản v${version} khắc phục hoàn toàn sự cố khi cập nhật t�
   - Bổ sung nút 1-click **Mở thư mục Extension trên máy** trong mục Cài đặt.
 - ⚡ **Gói cập nhật siêu tốc**:
   - \`MyDownloader-FastUpdate-${version}.zip\` chỉ ~660 KB thay vì phải tải lại 88 MB bộ cài!
-- 🛡️ **Hỗ trợ quyền quản trị tự động (perMachine = true)**:
-  - Bộ cài đặt Setup Windows tự động yêu cầu quyền Administrator, tương thích 100% khi nâng cấp đè từ các bản cũ (như v1.0.4) mà không lo bị chặn quyền ghi tệp hay xung đột tiến trình!
+- 🛡️ **Tương thích nâng cấp mượt mà từ bản cũ (như v1.0.4)**:
+  - Bộ cài đặt Setup Windows dual-mode tự động phát hiện bản cài cũ trong Program Files và yêu cầu nâng cấp quyền hệ thống UAC mượt mà không gây lỗi phân quyền hay xung đột tiến trình!
 
 ---
 
@@ -69,6 +69,64 @@ Phiên bản v${version} khắc phục hoàn toàn sự cố khi cập nhật t�
 - 💾 **Bộ cài đặt Setup Windows đầy đủ**: \`MyDownloader Setup ${version}.exe\`
 - 🚀 **Bản Portable chạy ngay**: \`MyDownloader ${version}.exe\`
 - 📄 **Cấu hình tự động cập nhật**: \`latest.yml\``
+
+function uploadAssetHttps(uploadUrl, filePath, token, maxRetries = 3) {
+  return new Promise((resolve, reject) => {
+    const attempt = (retryCount) => {
+      const url = new URL(uploadUrl)
+      const stat = fs.statSync(filePath)
+      const options = {
+        hostname: url.hostname,
+        port: 443,
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: {
+          'User-Agent': 'MyDownloader-Release-Agent',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': stat.size
+        }
+      }
+
+      const req = https.request(options, (res) => {
+        let body = ''
+        res.on('data', (chunk) => { body += chunk })
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              resolve(JSON.parse(body))
+            } catch {
+              resolve({ ok: true })
+            }
+          } else {
+            console.error(`  [!] Upload ${path.basename(filePath)} HTTP ${res.statusCode}: ${body.slice(0, 150)}`)
+            if (retryCount < maxRetries) {
+              console.log(`  -> Thử lại lần ${retryCount + 1}/${maxRetries} sau 3 giây...`)
+              setTimeout(() => attempt(retryCount + 1), 3000)
+            } else {
+              reject(new Error(`Upload failed with HTTP ${res.statusCode}`))
+            }
+          }
+        })
+      })
+
+      req.on('error', (err) => {
+        console.error(`  [!] Socket error: ${err.message}`)
+        if (retryCount < maxRetries) {
+          console.log(`  -> Thử lại lần ${retryCount + 1}/${maxRetries} sau 3 giây...`)
+          setTimeout(() => attempt(retryCount + 1), 3000)
+        } else {
+          reject(err)
+        }
+      })
+
+      fs.createReadStream(filePath).pipe(req)
+    }
+
+    attempt(0)
+  })
+}
 
 console.log(`\n======================================================`)
 console.log(`🚀 BẮT ĐẦU QUY TRÌNH ĐÓNG GÓI & PHÁT HÀNH TỰ ĐỘNG: ${tag}`)
@@ -84,29 +142,30 @@ execSync('npx.cmd electron-builder --win', { stdio: 'inherit', cwd: path.resolve
 
 // 5. Đồng bộ Git commit và tag lên GitHub
 console.log(`\n[3/5] 🏷️ Đang tạo Git tag và đẩy lên GitHub...`)
-const gitCmd = '"C:\\Program Files\\Git\\cmd\\git.exe"'
 try {
-  execSync(`${gitCmd} add .`, { stdio: 'pipe' })
-  try {
-    execSync(`${gitCmd} commit -m "chore(release): bump version to ${tag}"`, { stdio: 'pipe' })
-  } catch {}
-  execSync(`${gitCmd} tag -a ${tag} -m "Release ${tag}" -f`, { stdio: 'pipe' })
-  execSync(`${gitCmd} push https://x-access-token:${token}@github.com/${OWNER}/${REPO}.git main --tags -f`, { stdio: 'inherit' })
+  execSync('git add package.json extension/manifest.json electron-builder.json scripts/release.cjs src/', { stdio: 'ignore' })
+  execSync(`git commit -m "chore(release): bump version to ${tag}"`, { stdio: 'ignore' })
+} catch {}
+try {
+  execSync(`git tag -a ${tag} -m "${RELEASE_NAME}" -f`, { stdio: 'ignore' })
+} catch {}
+try {
+  execSync(`git push origin main --tags -f`, { stdio: 'inherit' })
   console.log(`  -> Đã đẩy mã nguồn và tag ${tag} lên GitHub thành công!`)
 } catch (e) {
-  console.warn(`  [!] Cảnh báo khi push git: ${e.message}`)
+  console.warn(`  [!] Cảnh báo push git: ${e.message}`)
 }
 
 // 6. Tải các tệp trong dist/ lên GitHub Release
 console.log(`\n[4/5] ☁️ Đang tải bản build lên GitHub Release ${tag}...`)
-const headers = {
-  Authorization: `Bearer ${token}`,
-  Accept: 'application/vnd.github+json',
-  'User-Agent': 'MyDownloader-Auto-Releaser',
-  'X-GitHub-Api-Version': '2022-11-28'
-}
 
 async function uploadRelease() {
+  const headers = {
+    'User-Agent': 'MyDownloader-Release-Agent',
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json'
+  }
+
   let release = null
   const getRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${tag}`, { headers })
   if (getRes.ok) {
@@ -173,12 +232,18 @@ async function uploadRelease() {
     `MyDownloader Setup ${version}.exe.blockmap`
   ]
 
-  const existingAssets = release.assets || []
+  // Lấy danh sách asset mới nhất từ GitHub
+  const currentAssetsRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/${release.id}/assets`, { headers })
+  const existingAssets = currentAssetsRes.ok ? await currentAssetsRes.json() : (release.assets || [])
 
-  // Xóa các asset cũ hoặc asset xung đột (ví dụ MyDownloader-Update-*.zip khiến bản cũ 1.0.4 chạy script lỗi)
+  // Xóa các asset cũ hoặc asset xung đột (ví dụ MyDownloader-Update-*.zip khiến bản cũ 1.0.4 chạy script lỗi, hoặc file có dấu chấm)
   for (const a of existingAssets) {
-    if (a.name.startsWith('MyDownloader-Update-')) {
-      console.log(`  -> Đang xóa asset xung đột '${a.name}' để bản v1.0.4 tải qua bộ cài Setup an toàn...`)
+    const isConflict = a.name.startsWith('MyDownloader-Update-') ||
+      a.name.includes(`Setup.${version}`) ||
+      a.name.includes(`.${version}.exe`) ||
+      filesToUpload.includes(a.name)
+    if (isConflict) {
+      console.log(`  -> Đang xóa asset cũ/xung đột '${a.name}'...`)
       await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/assets/${a.id}`, {
         method: 'DELETE',
         headers
@@ -196,35 +261,15 @@ async function uploadRelease() {
     const stat = fs.statSync(filePath)
     const sizeMB = (stat.size / (1024 * 1024)).toFixed(2)
 
-    // Xóa asset cũ nếu trùng
-    const dup = existingAssets.find((a) => a.name === filename)
-    if (dup) {
-      console.log(`  -> Đang thay thế asset cũ '${filename}'...`)
-      await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/assets/${dup.id}`, {
-        method: 'DELETE',
-        headers
-      })
-    }
-
     console.log(`  -> Đang tải lên '${filename}' (${sizeMB} MB)...`)
-    const buffer = fs.readFileSync(filePath)
     const uploadUrl = `https://uploads.github.com/repos/${OWNER}/${REPO}/releases/${release.id}/assets?name=${encodeURIComponent(filename)}`
 
-    const uploadRes = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': String(stat.size)
-      },
-      body: buffer
-    })
-
-    if (uploadRes.ok) {
-      const asset = await uploadRes.json()
-      console.log(`  [✓] Hoàn tất '${filename}'! URL: ${asset.browser_download_url}`)
-    } else {
-      console.error(`  [X] Lỗi upload '${filename}': HTTP ${uploadRes.status}`)
+    try {
+      const asset = await uploadAssetHttps(uploadUrl, filePath, token)
+      console.log(`  [✓] Hoàn tất '${filename}'! URL: ${asset.browser_download_url || uploadUrl}`)
+    } catch (err) {
+      console.error(`  [X] Lỗi upload '${filename}': ${err.message}`)
+      throw err
     }
   }
 
