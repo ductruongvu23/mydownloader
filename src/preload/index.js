@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('api', {
 
   showInFolder: (p) => ipcRenderer.invoke('shell:show', p),
   openFile: (p) => ipcRenderer.invoke('shell:open', p),
+  openExtensionFolder: () => ipcRenderer.invoke('extension:openFolder'),
 
   // Auto-Updater APIs
   checkUpdate: () => ipcRenderer.invoke('updater:check'),

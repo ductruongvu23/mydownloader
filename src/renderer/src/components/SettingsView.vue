@@ -127,6 +127,19 @@
           </div>
         </div>
 
+        <div class="form-row">
+          <div class="form-label">
+            <span class="label-text">Thư mục Tiện ích (Extension)</span>
+            <div class="update-subtext">Đã cài đặt sẵn cùng ứng dụng (phiên bản v{{ currentAppVersion }})</div>
+          </div>
+          <div class="form-control">
+            <el-button type="primary" plain @click="openExtFolder">
+              <el-icon class="el-icon--left"><FolderOpened /></el-icon>
+              Mở thư mục Extension trên máy
+            </el-button>
+          </div>
+        </div>
+
         <!-- HƯỚNG DẪN CÀI EXTENSION -->
         <div class="guide-box">
           <h4 class="guide-heading">{{ t('settings.guideTitle') }}</h4>
@@ -254,7 +267,7 @@ const { t } = useI18n()
 const settingsStore = useSettingsStore()
 
 const speedLimitKB = ref(0)
-const currentAppVersion = ref('1.0.4')
+const currentAppVersion = ref('1.0.5')
 const checkingUpdate = ref(false)
 const lastCheckStatus = ref('')
 const updateInfo = ref(null)
@@ -404,6 +417,17 @@ async function installAndRelaunch() {
 function openSetupUrl() {
   if (updateInfo.value?.setupDownloadUrl) {
     window.api.openFile(updateInfo.value.setupDownloadUrl)
+  }
+}
+
+async function openExtFolder() {
+  if (window.api?.openExtensionFolder) {
+    const res = await window.api.openExtensionFolder()
+    if (res.success) {
+      ElMessage.success('Đã mở thư mục Extension trong File Explorer!')
+    } else {
+      ElMessage.error(res.error || 'Không mở được thư mục extension.')
+    }
   }
 }
 </script>

@@ -598,6 +598,22 @@ function registerIpcHandlers() {
     return installUpdateFile(installerPath)
   })
 
+  // Mở thư mục Extension trên máy để người dùng nạp vào Chrome/Edge
+  ipcMain.handle('extension:openFolder', async () => {
+    const candidates = [
+      path.join(process.resourcesPath, 'extension'),
+      path.resolve(__dirname, '../../extension'),
+      path.resolve(app.getAppPath(), 'extension')
+    ]
+    for (const dir of candidates) {
+      if (fs.existsSync(dir)) {
+        await shell.openPath(dir)
+        return { success: true, path: dir }
+      }
+    }
+    return { success: false, error: 'Không tìm thấy thư mục extension trên máy.' }
+  })
+
   // IPC xử lý quyết định từ giao diện khi người dùng bấm Bắt đầu tải hoặc Hủy
   ipcMain.handle('bridge:decision', (_e, { downloadId, action }) => {
     if (downloadId) {

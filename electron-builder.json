@@ -19,6 +19,10 @@
     {
       "from": "resources",
       "to": "resources"
+    },
+    {
+      "from": "extension",
+      "to": "extension"
     }
   ],
   "win": {

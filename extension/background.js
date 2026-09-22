@@ -78,6 +78,91 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabMediaMap.delete(tabId)
 })
 
+// Định dạng media và pattern video streaming cần sniff
+const MEDIA_EXTENSIONS = /\.(mp4|webm|mkv|m4v|mov|flv|avi|mp3|m4a|aac|ogg|wav|ts|m3u8|mpd)(\?.*)?$/i
+const GOOGLEVIDEO_PATTERN = /googlevideo\.com\/videoplayback/i
+
+function cleanMediaUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl)
+    // Nếu là googlevideo.com, loại bỏ các tham số chia đoạn để tải trọn tệp
+    if (GOOGLEVIDEO_PATTERN.test(u.hostname + u.pathname)) {
+      u.searchParams.delete('range')
+      u.searchParams.delete('rn')
+      u.searchParams.delete('rbuf')
+      return u.toString()
+    }
+  } catch {}
+  return rawUrl
+}
+
+function addMediaToTab(tabId, url, type = 'video', title = '') {
+  if (!tabId || tabId <= 0 || !url || /^blob:/i.test(url) || /^data:/i.test(url)) return
+  if (!tabMediaMap.has(tabId)) {
+    tabMediaMap.set(tabId, [])
+  }
+  const list = tabMediaMap.get(tabId)
+  const cleanedUrl = cleanMediaUrl(url)
+  if (list.some((item) => item.url === cleanedUrl || item.url === url)) return
+
+  let ext = 'MP4'
+  if (/\.m3u8(\?.*)?$/i.test(url)) ext = 'M3U8'
+  else if (/\.mpd(\?.*)?$/i.test(url)) ext = 'MPD'
+  else if (/\.webm(\?.*)?$/i.test(url)) ext = 'WEBM'
+  else if (/\.mp3(\?.*)?$/i.test(url)) ext = 'MP3'
+  else if (/\.m4a(\?.*)?$/i.test(url)) ext = 'M4A'
+
+  const filename = `${title || 'Video_' + Date.now()}.${ext.toLowerCase()}`
+
+  list.push({
+    url: cleanedUrl,
+    title: title || 'Video Media',
+    filename,
+    ext,
+    type,
+    time: Date.now()
+  })
+
+  if (list.length > 50) list.shift()
+
+  try {
+    chrome.action.setBadgeText({ text: String(list.length), tabId })
+    chrome.action.setBadgeBackgroundColor({ color: '#0ea5e9', tabId })
+  } catch {}
+}
+
+// Bắt luồng mạng webRequest đối với các tệp video/audio thực tế
+if (chrome.webRequest) {
+  chrome.webRequest.onBeforeRequest.addListener(
+    (details) => {
+      const url = details.url
+      if (!url || details.tabId <= 0) return
+      if (MEDIA_EXTENSIONS.test(url) || GOOGLEVIDEO_PATTERN.test(url)) {
+        addMediaToTab(details.tabId, url, 'video')
+      }
+    },
+    { urls: ['<all_urls>'] }
+  )
+
+  chrome.webRequest.onHeadersReceived.addListener(
+    (details) => {
+      if (!details.url || details.tabId <= 0) return
+      const ctHeader = details.responseHeaders?.find((h) => h.name.toLowerCase() === 'content-type')
+      const ct = ctHeader ? ctHeader.value.toLowerCase() : ''
+      if (
+        ct.startsWith('video/') ||
+        ct.startsWith('audio/') ||
+        ct.includes('application/vnd.apple.mpegurl') ||
+        ct.includes('application/x-mpegurl')
+      ) {
+        addMediaToTab(details.tabId, details.url, ct.startsWith('audio/') ? 'audio' : 'video')
+      }
+    },
+    { urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'other'] },
+    ['responseHeaders']
+  )
+}
+
 // Lắng nghe thông điệp từ Content Script và Popup
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   if (req.action === 'download_url') {
@@ -89,22 +174,18 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   if (req.action === 'media_detected') {
     const tabId = sender.tab ? sender.tab.id : null
     if (tabId && req.media) {
-      if (!tabMediaMap.has(tabId)) {
-        tabMediaMap.set(tabId, [])
-      }
-      const list = tabMediaMap.get(tabId)
-      if (!list.some((item) => item.url === req.media.url)) {
-        list.push(req.media)
-        if (list.length > 50) list.shift()
-      }
-
-      // Cập nhật số lượng media lên huy hiệu của Extension Icon
-      try {
-        chrome.action.setBadgeText({ text: String(list.length), tabId })
-        chrome.action.setBadgeBackgroundColor({ color: '#0ea5e9', tabId })
-      } catch {}
+      addMediaToTab(tabId, req.media.url, req.media.type || 'video', req.media.title)
     }
     sendResponse({ success: true })
+    return true
+  }
+
+  if (req.action === 'get_tab_best_media') {
+    const tabId = sender.tab ? sender.tab.id : req.tabId
+    const mediaList = tabMediaMap.get(tabId) || []
+    // Ưu tiên tệp mp4 hoặc video playback hoàn chỉnh nhất
+    const best = mediaList.length > 0 ? mediaList[mediaList.length - 1] : null
+    sendResponse({ media: best, mediaList })
     return true
   }
 

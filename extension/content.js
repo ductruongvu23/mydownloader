@@ -41,6 +41,36 @@
       .slice(0, 60)
   }
 
+  // Bóc tách luồng phát trực tiếp từ YouTube khi xem video
+  function extractYouTubeStream() {
+    try {
+      if (!location.hostname.includes('youtube.com') && !location.hostname.includes('youtu.be')) {
+        return null
+      }
+      const scripts = document.querySelectorAll('script')
+      for (const s of scripts) {
+        const txt = s.textContent || ''
+        if (txt.includes('ytInitialPlayerResponse')) {
+          const m = txt.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/)
+          if (m) {
+            const data = JSON.parse(m[1])
+            const formats = data?.streamingData?.formats || []
+            // Ưu tiên itag 22 (720p có âm thanh) hoặc itag 18 (360p có âm thanh)
+            const best = formats.find((f) => f.itag === 22) || formats.find((f) => f.itag === 18) || formats[0]
+            if (best && best.url) {
+              return {
+                url: best.url,
+                title: data?.videoDetails?.title || cleanTitle(document.title),
+                ext: 'MP4'
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+    return null
+  }
+
   function getVideoSource(video) {
     let src = video.currentSrc || video.src
     if (!src) {
@@ -52,7 +82,7 @@
         return new URL(src, location.href).href
       } catch {}
     }
-    return src || ''
+    return ''
   }
 
   function getMediaExtension(url) {
@@ -162,39 +192,66 @@
     bar.addEventListener('mouseleave', hideBarDelayed)
 
     // Nhấp nút tải
-    bar.addEventListener('click', (e) => {
+    bar.addEventListener('click', async (e) => {
       e.preventDefault()
       e.stopPropagation()
 
-      const src = getVideoSource(video)
-      if (!src) {
-        alert('Không trích xuất được link video trực tiếp của trình phát này.')
+      let targetUrl = getVideoSource(video)
+      let title = cleanTitle(document.title)
+      let extName = 'MP4'
+
+      // Nếu không lấy được src trực tiếp (do dùng blob: trên YouTube hoặc MSE player):
+      if (!targetUrl) {
+        // Thử trích xuất luồng YouTube
+        const yt = extractYouTubeStream()
+        if (yt && yt.url) {
+          targetUrl = yt.url
+          title = yt.title || title
+          extName = yt.ext || 'MP4'
+        }
+      }
+
+      // Nếu vẫn chưa có, hỏi background xem có sniff được luồng media mạng nào không
+      if (!targetUrl) {
+        const bgRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ action: 'get_tab_best_media' }, resolve)
+        })
+        if (bgRes && bgRes.media && bgRes.media.url) {
+          targetUrl = bgRes.media.url
+          title = bgRes.media.title || title
+          extName = bgRes.media.ext || extName
+        }
+      }
+
+      if (!targetUrl || /^blob:/i.test(targetUrl)) {
+        alert('Trình phát video đang dùng bộ đệm blob nội bộ. Vui lòng bấm phát video thêm 1 giây để Extension bắt luồng HTTP qua mạng!')
         return
       }
 
-      const extName = getMediaExtension(src)
-      const docTitle = cleanTitle(document.title)
-      const filename = `${docTitle}.${extName.toLowerCase()}`
+      const filename = `${title}.${extName.toLowerCase()}`
 
       bar.classList.add('success')
       const textSpan = bar.querySelector('.mydownloader-floating-text')
       if (textSpan) textSpan.textContent = 'Đang chuyển vào app...'
 
-      chrome.runtime.sendMessage({
-        action: 'download_url',
-        url: src,
-        filename,
-        referrer: location.href
-      }, (res) => {
-        if (res && res.success) {
-          if (textSpan) textSpan.textContent = '✓ Đã nhận!'
+      chrome.runtime.sendMessage(
+        {
+          action: 'download_url',
+          url: targetUrl,
+          filename,
+          referrer: location.href
+        },
+        (res) => {
+          if (res && res.success) {
+            if (textSpan) textSpan.textContent = '✓ Đã nhận!'
+          }
+          setTimeout(() => {
+            bar.classList.remove('success')
+            if (textSpan) textSpan.textContent = 'Tải video này'
+            hideBarDelayed()
+          }, 2200)
         }
-        setTimeout(() => {
-          bar.classList.remove('success')
-          if (textSpan) textSpan.textContent = 'Tải video này'
-          hideBarDelayed()
-        }, 2200)
-      })
+      )
     })
 
     // Cập nhật vị trí định kỳ
@@ -205,13 +262,17 @@
   function scanMedia() {
     document.querySelectorAll('video').forEach((v) => {
       attachFloatingBar(v)
-      const src = getVideoSource(v)
-      if (src) reportMedia(src, 'video')
+      let src = getVideoSource(v)
+      if (!src) {
+        const yt = extractYouTubeStream()
+        if (yt && yt.url) src = yt.url
+      }
+      if (src && !/^blob:/i.test(src)) reportMedia(src, 'video')
     })
 
     document.querySelectorAll('audio').forEach((a) => {
       const src = a.currentSrc || a.src
-      if (src) reportMedia(src, 'audio')
+      if (src && !/^blob:/i.test(src) && !/^data:/i.test(src)) reportMedia(src, 'audio')
     })
   }
 
@@ -233,11 +294,19 @@
       scanMedia()
       const mediaList = []
       document.querySelectorAll('video, audio').forEach((el) => {
-        const src = el.currentSrc || el.src || (el.querySelector('source') ? el.querySelector('source').src : '')
-        if (src) {
+        let src = getVideoSource(el)
+        let title = cleanTitle(document.title)
+        if (!src && el.tagName.toLowerCase() === 'video') {
+          const yt = extractYouTubeStream()
+          if (yt && yt.url) {
+            src = yt.url
+            title = yt.title || title
+          }
+        }
+        if (src && !/^blob:/i.test(src)) {
           mediaList.push({
             url: src,
-            title: cleanTitle(document.title),
+            title,
             type: el.tagName.toLowerCase(),
             ext: getMediaExtension(src)
           })

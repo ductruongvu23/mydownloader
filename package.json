@@ -1,6 +1,6 @@
 {
   "name": "mydownloader",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Trình quản lý tải xuống đa luồng tốc độ cao, giao diện hiện đại và mã nguồn mở cho Windows",
   "type": "module",
   "main": "./out/main/index.js",

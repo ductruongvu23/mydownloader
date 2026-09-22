@@ -196,6 +196,26 @@ class HttpDownload extends EventEmitter {
   async probe() {
     console.log('[HttpDownload] Probe URL:', this.url.slice(0, 80))
 
+    if (this.url.startsWith('blob:')) {
+      throw new Error('Không thể tải URL dạng blob: (bộ nhớ tạm trình duyệt). Vui lòng phát video để Extension bắt luồng HTTP gốc.')
+    }
+
+    // Tối ưu hóa luồng video YouTube (googlevideo.com)
+    if (this.url.includes('googlevideo.com/videoplayback')) {
+      if (!this.headers['Referer'] && !this.headers['referer']) {
+        this.headers['Referer'] = 'https://www.youtube.com/'
+      }
+      try {
+        const u = new URL(this.url)
+        if (u.searchParams.has('range')) {
+          u.searchParams.delete('range')
+          u.searchParams.delete('rn')
+          u.searchParams.delete('rbuf')
+          this.url = u.toString()
+        }
+      } catch {}
+    }
+
     // 6. DNS Prefetch
     try {
       const parsed = new URL(this.url)

@@ -18,36 +18,50 @@ if (!token) {
   process.exit(1)
 }
 
-// 2. Đọc thông tin package.json
+// 2. Đọc thông tin package.json và đồng bộ sang extension manifest
 const pkgPath = path.resolve(__dirname, '../package.json')
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
-const version = pkg.version || '1.0.2'
+const version = pkg.version || '1.0.5'
 const tag = `v${version}`
 const OWNER = 'ductruongvu23'
 const REPO = 'mydownloader'
 const RELEASE_NAME = `MyDownloader v${version}`
 
-const RELEASE_NOTES = `# 🚀 MyDownloader v${version} - Tự động Cập nhật Siêu tốc (~1 MB)
+// Tự động đồng bộ version vào extension/manifest.json
+const manifestPath = path.resolve(__dirname, '../extension/manifest.json')
+if (fs.existsSync(manifestPath)) {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  manifest.version = version
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+  console.log(`[✓] Đã đồng bộ phiên bản Extension manifest.json thành: ${version}`)
+}
 
-Phiên bản v${version} mang đến cơ chế **Cập nhật Siêu tốc (Fast In-Place Hot-Update)**, giảm hơn 98% dung lượng tải cập nhật từ 88 MB xuống chỉ còn ~1 MB và cập nhật tức thì trong 2 giây!
+const RELEASE_NOTES = `# 🚀 MyDownloader v${version} - Bắt Video Thông Minh & Tích Hợp Extension Trực Tiếp
+
+Phiên bản v${version} mang đến khả năng bắt luồng video thông minh (khắc phục hoàn toàn lỗi video blob/YouTube không tải), đồng bộ và đóng gói Extension trình duyệt trực tiếp vào bộ cài đặt của ứng dụng!
 
 ### ✨ Tính Năng Nổi Bật v${version}
-- ⚡ **Fast In-Place Hot-Update (~1 MB thay vì 88 MB)**:
-  - Tự động phát hiện và tải gói vá vi mô \`MyDownloader-Update-${version}.zip\` (chỉ ~1 MB).
-  - Tự động thay thế mã nguồn và khởi động lại trong 2 giây mà không cần cài đặt lại toàn bộ runtime.
-  - Tự động tạo bản sao lưu an toàn \`app.asar.bak\` trước khi tráo đổi.
-- 🪶 **Tối ưu hóa dung lượng lõi**:
-  - Tách triệt để \`node_modules\` dư thừa khỏi gói ứng dụng, giảm kích thước asar từ 68 MB xuống 3.4 MB.
-- 🛡️ **Bắt link thông minh & Hoãn hủy download trình duyệt**.
-- 🎬 **Nút nổi bắt video trực tiếp trên media đang phát (Media Sniffer)**.
-- 🎨 **Giao diện Extension Dark Mode & Menu chuột phải mở rộng**.
+- 🎬 **Bắt Video Media & YouTube Thông Minh**:
+  - Tích hợp quyền \`webRequest\` và bộ sniff luồng mạng trực tiếp, bóc tách luồng HTTP video thực tế thay vì lấy \`blob:\` nội bộ.
+  - Tự động bóc tách stream MP4 trực tiếp từ YouTube \`ytInitialPlayerResponse\`.
+  - Tối ưu hóa tải luồng \`googlevideo.com\` đa luồng mượt mà, tự động gắn Referer và làm sạch query phân mảnh.
+- 🧩 **Đồng bộ & Đóng gói Extension cùng Ứng Dụng**:
+  - Thư mục \`extension\` được cài đặt trực tiếp vào \`resources/extension\` của ứng dụng.
+  - Bổ sung nút 1-click **Mở thư mục Extension trên máy** trong mục Cài đặt để nạp vào Chrome/Edge cực kỳ nhanh chóng.
+  - Tự động đồng bộ phiên bản giữa App và Extension.
+- ⚡ **Fast In-Place Hot-Update**:
+  - Gói cập nhật siêu nhẹ \`MyDownloader-Update-${version}.zip\` (~659 KB thay vì 88 MB), cập nhật xong tự khởi động lại trong 2 giây!
+- 🏎️ **Hiệu năng Download Đỉnh Cao**:
+  - Tải đa luồng nhanh gấp **14.0x** so với đơn luồng (28.04 MB/s vs 2.00 MB/s).
+  - Bộ đệm \`DiskWriteBuffer\` triệt tiêu 90%+ syscall đĩa.
 
 ---
 
 ### 📦 Tệp Tải Về
-- ⚡ **Gói cập nhật siêu tốc (Cho ứng dụng đã cài đặt)**: \`MyDownloader-Update-${version}.zip\` (~1 MB)
+- ⚡ **Gói cập nhật siêu tốc**: \`MyDownloader-Update-${version}.zip\` (~659 KB)
+- 🧩 **Tiện ích mở rộng trình duyệt**: \`MyDownloader-Extension-${version}.zip\`
 - 💾 **Bộ cài đặt Setup Windows đầy đủ**: \`MyDownloader Setup ${version}.exe\`
-- 🚀 **Bản Portable chạy ngay không cần cài đặt**: \`MyDownloader ${version}.exe\`
+- 🚀 **Bản Portable chạy ngay**: \`MyDownloader ${version}.exe\`
 - 📄 **Cấu hình tự động cập nhật**: \`latest.yml\``
 
 console.log(`\n======================================================`)
@@ -129,8 +143,24 @@ async function uploadRelease() {
     }
   }
 
+  // Tạo gói tiện ích mở rộng MyDownloader-Extension-{version}.zip
+  const extensionZipName = `MyDownloader-Extension-${version}.zip`
+  const extensionZipPath = path.join(distDir, extensionZipName)
+  const extensionSrcDir = path.resolve(__dirname, '../extension')
+  if (fs.existsSync(extensionSrcDir)) {
+    console.log(`  🧩 Đang đóng gói tiện ích mở rộng: ${extensionZipName}...`)
+    try {
+      execSync(`tar -a -cf "${extensionZipPath}" -C "${path.dirname(extensionSrcDir)}" extension`)
+      const extStat = fs.statSync(extensionZipPath)
+      console.log(`  -> [✓] Đã tạo '${extensionZipName}' thành công: ${(extStat.size / 1024).toFixed(0)} KB`)
+    } catch (e) {
+      console.warn(`  [!] Cảnh báo không tạo được zip extension: ${e.message}`)
+    }
+  }
+
   const filesToUpload = [
     updateZipName,
+    extensionZipName,
     `MyDownloader Setup ${version}.exe`,
     `MyDownloader ${version}.exe`,
     'latest.yml',
