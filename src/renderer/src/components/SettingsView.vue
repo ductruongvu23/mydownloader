@@ -235,7 +235,7 @@ const { t } = useI18n()
 const settingsStore = useSettingsStore()
 
 const speedLimitKB = ref(0)
-const currentAppVersion = ref('1.0.1')
+const currentAppVersion = ref('1.0.2')
 const checkingUpdate = ref(false)
 const lastCheckStatus = ref('')
 const updateInfo = ref(null)
