@@ -54,6 +54,9 @@ function openAddModalManual() {
 
 function onModalVisibleChange(val) {
   if (!val) {
+    if (incomingDownload.value?.downloadId) {
+      window.api?.setBridgeDecision?.(incomingDownload.value.downloadId, 'cancelled')
+    }
     incomingDownload.value = null
   }
 }

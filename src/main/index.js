@@ -82,6 +82,9 @@ function saveSettings(newSettings) {
   return currentSettings
 }
 
+// Lưu trạng thái quyết định của người dùng cho các download item từ extension
+const bridgeDecisions = new Map()
+
 // Cầu nối Extension HTTP Server
 function startBridge(port = 6801) {
   if (bridgeServer) {
@@ -113,6 +116,27 @@ function startBridge(port = 6801) {
       }))
     }
 
+    // Endpoint kiểm tra quyết định của người dùng cho một lượt tải từ extension
+    if (req.method === 'GET' && req.url.startsWith('/bridge/decision')) {
+      try {
+        const parsedUrl = new URL(req.url, 'http://127.0.0.1')
+        const id = parsedUrl.searchParams.get('id')
+        if (!id) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          return res.end(JSON.stringify({ error: 'Thiếu downloadId' }))
+        }
+        const record = bridgeDecisions.get(String(id))
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        return res.end(JSON.stringify({
+          downloadId: id,
+          action: record ? record.action : 'pending'
+        }))
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        return res.end(JSON.stringify({ error: e.message }))
+      }
+    }
+
     // Kiểm tra token nếu client có gửi hoặc nếu token được cấu hình bắt buộc
     const tokenHeader = req.headers['x-token']
     if (tokenHeader && tokenHeader !== currentSettings.extensionToken) {
@@ -128,13 +152,13 @@ function startBridge(port = 6801) {
       })
       req.on('end', () => {
         try {
-          const { url, referrer, cookie, userAgent, filename } = JSON.parse(body)
+          const { url, referrer, cookie, userAgent, filename, downloadId } = JSON.parse(body)
           if (!url || !/^https?:\/\//i.test(url)) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             return res.end(JSON.stringify({ error: 'URL không hợp lệ' }))
           }
 
-          console.log(`[Bridge Server] 📥 Nhận liên kết tải từ Extension: ${url.slice(0, 100)}... (tên: ${filename || 'tự động'})`)
+          console.log(`[Bridge Server] 📥 Nhận liên kết tải từ Extension: ${url.slice(0, 100)}... (tên: ${filename || 'tự động'}, downloadId: ${downloadId || 'none'})`)
 
           // Luôn đưa cửa sổ lên màn hình chính khi có link từ trình duyệt
           if (mainWindow && !mainWindow.isDestroyed()) {
@@ -181,7 +205,8 @@ function startBridge(port = 6801) {
                 filename: filename || '',
                 headers,
                 dir: currentSettings.downloadDir,
-                threads: currentSettings.threads
+                threads: currentSettings.threads,
+                downloadId: downloadId || null
               })
             }
             res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -571,6 +596,17 @@ function registerIpcHandlers() {
 
   ipcMain.handle('updater:install', (_e, installerPath) => {
     return installUpdateFile(installerPath)
+  })
+
+  // IPC xử lý quyết định từ giao diện khi người dùng bấm Bắt đầu tải hoặc Hủy
+  ipcMain.handle('bridge:decision', (_e, { downloadId, action }) => {
+    if (downloadId) {
+      bridgeDecisions.set(String(downloadId), { action, time: Date.now() })
+      setTimeout(() => {
+        bridgeDecisions.delete(String(downloadId))
+      }, 60000)
+    }
+    return { success: true }
   })
 }
 

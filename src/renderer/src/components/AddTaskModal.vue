@@ -116,7 +116,7 @@
 
     <template #footer>
       <div class="dialog-footer">
-        <el-button @click="visible = false">{{ t('add.cancel') }}</el-button>
+        <el-button @click="handleCancel">{{ t('add.cancel') }}</el-button>
         <el-button
           type="primary"
           :disabled="!canSubmit"
@@ -280,6 +280,9 @@ async function submit() {
       }
 
       if (added && added.length > 0) {
+        if (props.initialData?.downloadId) {
+          window.api?.setBridgeDecision?.(props.initialData.downloadId, 'started')
+        }
         ElMessage.success(`Đã thêm ${added.length} nhiệm vụ tải xuống thành công!`)
         visible.value = false
         urlText.value = ''
@@ -296,6 +299,9 @@ async function submit() {
       const uri = magnetUri.value.trim()
       if (!uri) return
       await tasksStore.addTasks([uri], { dir })
+      if (props.initialData?.downloadId) {
+        window.api?.setBridgeDecision?.(props.initialData.downloadId, 'started')
+      }
       ElMessage.success('Đã thêm Magnet link vào hàng đợi!')
       visible.value = false
       magnetUri.value = ''
@@ -306,6 +312,13 @@ async function submit() {
   } finally {
     submitting.value = false
   }
+}
+
+function handleCancel() {
+  if (props.initialData?.downloadId) {
+    window.api?.setBridgeDecision?.(props.initialData.downloadId, 'cancelled')
+  }
+  visible.value = false
 }
 </script>
 

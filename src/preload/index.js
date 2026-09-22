@@ -33,7 +33,8 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('updater:progress', handler)
   },
 
-  // Extension Bridge Event Listeners
+  // Extension Bridge Event Listeners & Decision
+  setBridgeDecision: (downloadId, action) => ipcRenderer.invoke('bridge:decision', { downloadId, action }),
   onLinkReceived: (cb) => {
     const handler = (_e, data) => cb(data)
     ipcRenderer.on('bridge:link-received', handler)
