@@ -624,6 +624,11 @@ function registerIpcHandlers() {
     }
     return { success: true }
   })
+
+  // Lấy phiên bản thực tế của ứng dụng
+  ipcMain.handle('app:version', () => {
+    return app.getVersion()
+  })
 }
 
 // Module Kiểm tra & Tải Cập nhật từ GitHub Releases
@@ -727,14 +732,16 @@ async function downloadUpdateAsset(downloadUrl, assetName, onProgress) {
     // Nếu là tệp .zip (Fast Update), tự động giải nén app.asar
     if (assetName && assetName.endsWith('.zip')) {
       const extractDir = path.join(tempDir, 'mydownloader-fast-update')
-      if (!fs.existsSync(extractDir)) {
-        fs.mkdirSync(extractDir, { recursive: true })
+      if (fs.existsSync(extractDir)) {
+        try { fs.rmSync(extractDir, { recursive: true, force: true }) } catch {}
       }
+      fs.mkdirSync(extractDir, { recursive: true })
+
       const { execSync } = await import('child_process')
       execSync(`tar -xf "${destPath}" -C "${extractDir}"`)
 
       const extractedAsar = path.join(extractDir, 'app.asar')
-      if (!fs.existsSync(extractedAsar)) {
+      if (!fs.existsSync(extractedAsar) || fs.statSync(extractedAsar).size < 100000) {
         throw new Error('Gói cập nhật không chứa tệp app.asar hợp lệ.')
       }
       return { success: true, destPath: extractedAsar, isFastUpdate: true }
@@ -761,44 +768,71 @@ async function installUpdateFile(installerPath) {
     }
 
     const targetAsar = path.join(process.resourcesPath, 'app.asar')
+    const targetBak = path.join(process.resourcesPath, 'app.asar.bak')
     const appExe = process.execPath
     const pid = process.pid
 
-    // Tạo kịch bản batch độc lập để tráo đổi asar sau khi tiến trình Electron thoát hẳn
+    // Tạo kịch bản batch độc lập nhúng trực tiếp đường dẫn, có retry loop và logging
     const scriptPath = path.join(app.getPath('temp'), `patch-update-${Date.now()}.bat`)
+    const logPath = path.join(app.getPath('temp'), 'mydownloader-update.log')
+
     const batContent = `@echo off
 chcp 65001 >nul
-echo [MyDownloader] Dang ap dung ban cap nhat sieu toc...
+echo [%date% %time%] [MyDownloader Updater] Bat dau cap nhat... > "${logPath}"
+echo PID: ${pid} >> "${logPath}"
+echo Target: "${targetAsar}" >> "${logPath}"
+echo Source: "${installerPath}" >> "${logPath}"
+echo Exe: "${appExe}" >> "${logPath}"
 
 :: Cho tien trinh Electron cu thoat han
 :wait_loop
-tasklist /fi "pid eq %1" 2>nul | findstr "%1" >nul
+tasklist /fi "pid eq ${pid}" 2>nul | findstr "${pid}" >nul
 if not errorlevel 1 (
-    timeout /t 1 /nobreak >nul
+    echo Dang cho tien trinh PID ${pid} thoat... >> "${logPath}"
+    ping 127.0.0.1 -n 2 >nul
     goto wait_loop
 )
 
-:: Sao luu ban hien tai
-copy /y "%~2" "%~2.bak" >nul 2>&1
+:: Cho 2 giay de Windows giai phong hoan toan file lock tren app.asar
+echo Tien trinh da thoat, cho Windows giai phong file lock... >> "${logPath}"
+ping 127.0.0.1 -n 3 >nul
 
-:: Ghi de app.asar moi
-copy /y "%~3" "%~2" >nul 2>&1
-if errorlevel 1 (
-    move /y "%~3" "%~2" >nul 2>&1
-)
+:: Sao luu app.asar.bak neu ton tai
+if exist "${targetAsar}" copy /y "${targetAsar}" "${targetBak}" >> "${logPath}" 2>&1
 
-:: Khoi dong lai ung dung
-start "" "%~4"
+:: Vong lap thu chep de toi da 15 lan neu file con bi OS/Antivirus giu lock
+set RETRY=0
 
-:: Xoa tệp tạm và tự xóa batch script
-del "%~3" >nul 2>&1
+:copy_loop
+echo Thu ghi de app.asar lan %RETRY%... >> "${logPath}"
+copy /y "${installerPath}" "${targetAsar}" >> "${logPath}" 2>&1
+if not errorlevel 1 goto copy_success
+
+set /a RETRY+=1
+if %RETRY% geq 15 goto copy_fail
+ping 127.0.0.1 -n 2 >nul
+goto copy_loop
+
+:copy_fail
+echo [LOI] Khong the ghi de app.asar sau 15 lan thu! >> "${logPath}"
+goto launch_app
+
+:copy_success
+echo [THANH CONG] Da ghi de app.asar thanh cong! >> "${logPath}"
+del /f /q "${installerPath}" >nul 2>&1
+
+:launch_app
+echo Khoi dong lai MyDownloader: "${appExe}" >> "${logPath}"
+start "" "${appExe}"
+
+:: Tu xoa kịch bản batch
 (goto) 2>nul & del "%~f0"
 `
 
     fs.writeFileSync(scriptPath, batContent, 'utf8')
 
-    // Chạy helper script detached hoàn toàn
-    const child = spawn('cmd.exe', ['/c', scriptPath, String(pid), targetAsar, installerPath, appExe], {
+    // Chạy helper script detached hoàn toàn (không truyền positional args để tránh cmd.exe quote stripping)
+    const child = spawn('cmd.exe', ['/c', scriptPath], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true

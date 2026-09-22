@@ -36,29 +36,33 @@ if (fs.existsSync(manifestPath)) {
   console.log(`[✓] Đã đồng bộ phiên bản Extension manifest.json thành: ${version}`)
 }
 
-const RELEASE_NOTES = `# 🚀 MyDownloader v${version} - Bắt Video Thông Minh & Tích Hợp Extension Trực Tiếp
+const RELEASE_NOTES = `# 🚀 MyDownloader v${version} - Bản vá Cập nhật Tại chỗ & Đồng bộ Hệ thống
 
-Phiên bản v${version} mang đến khả năng bắt luồng video thông minh (khắc phục hoàn toàn lỗi video blob/YouTube không tải), đồng bộ và đóng gói Extension trình duyệt trực tiếp vào bộ cài đặt của ứng dụng!
+Phiên bản v${version} khắc phục hoàn toàn sự cố khi cập nhật tại chỗ (Hot-Update không cần tải lại file Setup 88MB), tối ưu độ trễ giải phóng file lock của Windows và đảm bảo giao diện luôn hiển thị chính xác phiên bản đang chạy!
 
-### ✨ Tính Năng Nổi Bật v${version}
+### ✨ Tính Năng & Bản Vá v${version}
+- 🛠️ **Sửa lỗi cập nhật tại chỗ (Hot-Update) triệt để**:
+  - Khắc phục lỗi tiến trình cmd/batch chạy ngầm bị crash do lệnh \`timeout\` không hỗ trợ input redirection trên Windows.
+  - Sử dụng cơ chế chờ \`ping\` tương thích 100% môi trường Windows background process.
+  - Nhúng trực tiếp đường dẫn tuyệt đối (tránh lỗi ngắt tham số khoảng trắng).
+  - Vòng lặp tự động retry lên đến 15 lần (chờ Windows giải phóng lock \`app.asar\`).
+  - Ghi toàn bộ nhật ký cập nhật vào \`%TEMP%\\mydownloader-update.log\` giúp chẩn đoán sự cố tức thì.
+- 🔄 **Đồng bộ phiên bản động**:
+  - Giao diện Settings tự động lấy phiên bản thực tế của runtime (\`app.getVersion()\`) qua IPC \`app:version\`.
 - 🎬 **Bắt Video Media & YouTube Thông Minh**:
   - Tích hợp quyền \`webRequest\` và bộ sniff luồng mạng trực tiếp, bóc tách luồng HTTP video thực tế thay vì lấy \`blob:\` nội bộ.
   - Tự động bóc tách stream MP4 trực tiếp từ YouTube \`ytInitialPlayerResponse\`.
   - Tối ưu hóa tải luồng \`googlevideo.com\` đa luồng mượt mà, tự động gắn Referer và làm sạch query phân mảnh.
 - 🧩 **Đồng bộ & Đóng gói Extension cùng Ứng Dụng**:
   - Thư mục \`extension\` được cài đặt trực tiếp vào \`resources/extension\` của ứng dụng.
-  - Bổ sung nút 1-click **Mở thư mục Extension trên máy** trong mục Cài đặt để nạp vào Chrome/Edge cực kỳ nhanh chóng.
-  - Tự động đồng bộ phiên bản giữa App và Extension.
-- ⚡ **Fast In-Place Hot-Update**:
-  - Gói cập nhật siêu nhẹ \`MyDownloader-Update-${version}.zip\` (~659 KB thay vì 88 MB), cập nhật xong tự khởi động lại trong 2 giây!
-- 🏎️ **Hiệu năng Download Đỉnh Cao**:
-  - Tải đa luồng nhanh gấp **14.0x** so với đơn luồng (28.04 MB/s vs 2.00 MB/s).
-  - Bộ đệm \`DiskWriteBuffer\` triệt tiêu 90%+ syscall đĩa.
+  - Bổ sung nút 1-click **Mở thư mục Extension trên máy** trong mục Cài đặt.
+- ⚡ **Gói cập nhật siêu tốc**:
+  - \`MyDownloader-Update-${version}.zip\` chỉ ~660 KB thay vì phải tải lại 88 MB bộ cài!
 
 ---
 
 ### 📦 Tệp Tải Về
-- ⚡ **Gói cập nhật siêu tốc**: \`MyDownloader-Update-${version}.zip\` (~659 KB)
+- ⚡ **Gói cập nhật siêu tốc**: \`MyDownloader-Update-${version}.zip\` (~660 KB)
 - 🧩 **Tiện ích mở rộng trình duyệt**: \`MyDownloader-Extension-${version}.zip\`
 - 💾 **Bộ cài đặt Setup Windows đầy đủ**: \`MyDownloader Setup ${version}.exe\`
 - 🚀 **Bản Portable chạy ngay**: \`MyDownloader ${version}.exe\`

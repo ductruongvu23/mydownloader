@@ -267,7 +267,7 @@ const { t } = useI18n()
 const settingsStore = useSettingsStore()
 
 const speedLimitKB = ref(0)
-const currentAppVersion = ref('1.0.5')
+const currentAppVersion = ref('1.0.6')
 const checkingUpdate = ref(false)
 const lastCheckStatus = ref('')
 const updateInfo = ref(null)
@@ -289,7 +289,14 @@ const form = reactive({
   extensionToken: ''
 })
 
-onMounted(() => {
+onMounted(async () => {
+  if (window.api?.getAppVersion) {
+    try {
+      const v = await window.api.getAppVersion()
+      if (v) currentAppVersion.value = v
+    } catch {}
+  }
+
   Object.assign(form, {
     downloadDir: settingsStore.downloadDir,
     language: settingsStore.language,
@@ -351,6 +358,9 @@ async function checkUpdates() {
   try {
     const res = await window.api.checkUpdate()
     updateInfo.value = res
+    if (res.currentVersion) {
+      currentAppVersion.value = res.currentVersion
+    }
     if (res.error) {
       lastCheckStatus.value = `Lỗi: ${res.error}`
       ElMessage.error(`Kiểm tra cập nhật thất bại: ${res.error}`)
