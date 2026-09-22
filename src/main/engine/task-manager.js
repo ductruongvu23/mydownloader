@@ -32,16 +32,19 @@ class TaskManager extends EventEmitter {
     return null
   }
 
-  add(url, { dir, filename, headers = {}, threads = 8, force = false } = {}) {
+  add(urlOrUrls, { dir, filename, headers = {}, threads = 8, mirrors = [], force = false } = {}) {
+    const urls = Array.isArray(urlOrUrls) ? urlOrUrls : [urlOrUrls, ...(mirrors || [])].filter(Boolean)
+    const primaryUrl = urls[0] || ''
+
     // Kiểm tra trùng lặp để tránh tải lại hoặc chạy ngầm nhiều task cùng URL gây ngốn RAM
-    const dup = this.checkDuplicate(url)
+    const dup = this.checkDuplicate(primaryUrl)
     if (dup && !force) {
       if (dup.type === 'downloading') {
-        console.log('[TaskManager] ⚠️ URL đang được tải xuống, không thêm task trùng:', url.slice(0, 80))
+        console.log('[TaskManager] ⚠️ URL đang được tải xuống, không thêm task trùng:', primaryUrl.slice(0, 80))
         return { ...dup.task, isDuplicate: true, duplicateReason: 'downloading' }
       }
       if (dup.type === 'done' && dup.fileExists) {
-        console.log('[TaskManager] ℹ️ URL đã tải xong trước đó và tệp còn tồn tại:', url.slice(0, 80))
+        console.log('[TaskManager] ℹ️ URL đã tải xong trước đó và tệp còn tồn tại:', primaryUrl.slice(0, 80))
         return { ...dup.task, isDuplicate: true, duplicateReason: 'done' }
       }
     }
@@ -50,7 +53,7 @@ class TaskManager extends EventEmitter {
     let initialName = filename || ''
     if (!initialName) {
       try {
-        const parsed = new URL(url)
+        const parsed = new URL(primaryUrl)
         const qp = parsed.searchParams.get('filename') || parsed.searchParams.get('file')
         if (qp) {
           initialName = qp
@@ -66,7 +69,9 @@ class TaskManager extends EventEmitter {
 
     const task = {
       id,
-      url,
+      url: primaryUrl,
+      urls,
+      mirrors: urls.slice(1),
       headers,
       threads: threads || 8,
       dir: dir || process.cwd(),
@@ -106,10 +111,11 @@ class TaskManager extends EventEmitter {
     const useAria2 = /^(magnet:|ftp:)/i.test(t.url) || /\.torrent(\?|$)/i.test(t.url)
     const dl = useAria2
       ? new Aria2Download(t.url, t.dest, { dir: t.dir })
-      : new HttpDownload(t.url, t.dest, {
+      : new HttpDownload(t.urls && t.urls.length > 1 ? t.urls : t.url, t.dest, {
           dir: t.dir,
           headers: t.headers,
           threads: t.threads,
+          mirrors: t.mirrors,
           limiter: this.limiter
         })
 

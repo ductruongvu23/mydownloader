@@ -7,7 +7,7 @@
       </div>
       <div class="logo-text-wrap">
         <span class="logo-text">MyDownloader</span>
-        <span class="logo-version">v1.0.2</span>
+        <span class="logo-version">v1.0.3</span>
       </div>
     </div>
 
