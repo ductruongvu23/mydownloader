@@ -2,10 +2,11 @@
 
 <div align="center">
 
-![Electron](https://img.shields.io/badge/Electron-32.x-47848F?style=for-the-badge&logo=electron&logoColor=white)
-![Vue 3](https://img.shields.io/badge/Vue-3.x-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-5.x-646CFF?style=for-the-badge&logo=vite&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+[![GitHub Release](https://img.shields.io/github/v/release/ductruongvu23/mydownloader?style=for-the-badge&logo=github&color=0284c7)](https://github.com/ductruongvu23/mydownloader/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-3b82f6?style=for-the-badge&logo=open-source-initiative&logoColor=white)](LICENSE)
+[![Electron](https://img.shields.io/badge/Electron-32.x-47848F?style=for-the-badge&logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Vue 3](https://img.shields.io/badge/Vue-3.x-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![Vite](https://img.shields.io/badge/Vite-5.x-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.org/)
 
 **Trình quản lý tải xuống đa luồng tốc độ cao, giao diện hiện đại và mã nguồn mở cho Windows.**  
 *A modern, open-source high-speed multi-threaded download manager for Windows.*
