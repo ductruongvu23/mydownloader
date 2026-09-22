@@ -142,15 +142,28 @@ execSync('npx.cmd electron-builder --win', { stdio: 'inherit', cwd: path.resolve
 
 // 5. Đồng bộ Git commit và tag lên GitHub
 console.log(`\n[3/5] 🏷️ Đang tạo Git tag và đẩy lên GitHub...`)
+let gitBin = 'git'
+const gitCandidates = [
+  'C:\\Program Files\\Git\\cmd\\git.exe',
+  'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
+  path.join(process.env.LOCALAPPDATA || '', 'Programs\\Git\\cmd\\git.exe')
+]
+for (const c of gitCandidates) {
+  if (fs.existsSync(c)) {
+    gitBin = `"${c}"`
+    break
+  }
+}
+
 try {
-  execSync('git add package.json extension/manifest.json electron-builder.json scripts/release.cjs src/', { stdio: 'ignore' })
-  execSync(`git commit -m "chore(release): bump version to ${tag}"`, { stdio: 'ignore' })
+  execSync(`${gitBin} add package.json extension/manifest.json electron-builder.json scripts/release.cjs src/`, { stdio: 'ignore' })
+  execSync(`${gitBin} commit -m "chore(release): bump version to ${tag}"`, { stdio: 'ignore' })
 } catch {}
 try {
-  execSync(`git tag -a ${tag} -m "${RELEASE_NAME}" -f`, { stdio: 'ignore' })
+  execSync(`${gitBin} tag -a ${tag} -m "${RELEASE_NAME}" -f`, { stdio: 'ignore' })
 } catch {}
 try {
-  execSync(`git push origin main --tags -f`, { stdio: 'inherit' })
+  execSync(`${gitBin} push origin main --tags -f`, { stdio: 'inherit' })
   console.log(`  -> Đã đẩy mã nguồn và tag ${tag} lên GitHub thành công!`)
 } catch (e) {
   console.warn(`  [!] Cảnh báo push git: ${e.message}`)
