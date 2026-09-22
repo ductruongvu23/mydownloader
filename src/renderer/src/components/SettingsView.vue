@@ -426,7 +426,11 @@ async function installAndRelaunch() {
 
 function openSetupUrl() {
   if (updateInfo.value?.setupDownloadUrl) {
-    window.api.openFile(updateInfo.value.setupDownloadUrl)
+    if (window.api?.openExternal) {
+      window.api.openExternal(updateInfo.value.setupDownloadUrl)
+    } else if (window.api?.openFile) {
+      window.api.openFile(updateInfo.value.setupDownloadUrl)
+    }
   }
 }
 

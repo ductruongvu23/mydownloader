@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('api', {
 
   showInFolder: (p) => ipcRenderer.invoke('shell:show', p),
   openFile: (p) => ipcRenderer.invoke('shell:open', p),
+  openExternal: (url) => ipcRenderer.invoke('shell:open', url),
   openExtensionFolder: () => ipcRenderer.invoke('extension:openFolder'),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
 

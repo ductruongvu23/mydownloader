@@ -57,12 +57,14 @@ Phiên bản v${version} khắc phục hoàn toàn sự cố khi cập nhật t�
   - Thư mục \`extension\` được cài đặt trực tiếp vào \`resources/extension\` của ứng dụng.
   - Bổ sung nút 1-click **Mở thư mục Extension trên máy** trong mục Cài đặt.
 - ⚡ **Gói cập nhật siêu tốc**:
-  - \`MyDownloader-Update-${version}.zip\` chỉ ~660 KB thay vì phải tải lại 88 MB bộ cài!
+  - \`MyDownloader-FastUpdate-${version}.zip\` chỉ ~660 KB thay vì phải tải lại 88 MB bộ cài!
+- 🛡️ **Hỗ trợ quyền quản trị tự động (perMachine = true)**:
+  - Bộ cài đặt Setup Windows tự động yêu cầu quyền Administrator, tương thích 100% khi nâng cấp đè từ các bản cũ (như v1.0.4) mà không lo bị chặn quyền ghi tệp hay xung đột tiến trình!
 
 ---
 
 ### 📦 Tệp Tải Về
-- ⚡ **Gói cập nhật siêu tốc**: \`MyDownloader-Update-${version}.zip\` (~660 KB)
+- ⚡ **Gói cập nhật siêu tốc**: \`MyDownloader-FastUpdate-${version}.zip\` (~660 KB)
 - 🧩 **Tiện ích mở rộng trình duyệt**: \`MyDownloader-Extension-${version}.zip\`
 - 💾 **Bộ cài đặt Setup Windows đầy đủ**: \`MyDownloader Setup ${version}.exe\`
 - 🚀 **Bản Portable chạy ngay**: \`MyDownloader ${version}.exe\`
@@ -132,8 +134,8 @@ async function uploadRelease() {
 
   const distDir = path.resolve(__dirname, '../dist')
 
-  // Tạo gói cập nhật siêu tốc MyDownloader-Update-{version}.zip chứa app.asar
-  const updateZipName = `MyDownloader-Update-${version}.zip`
+  // Tạo gói cập nhật siêu tốc MyDownloader-FastUpdate-{version}.zip chứa app.asar
+  const updateZipName = `MyDownloader-FastUpdate-${version}.zip`
   const updateZipPath = path.join(distDir, updateZipName)
   const asarPath = path.join(distDir, 'win-unpacked/resources/app.asar')
   if (fs.existsSync(asarPath)) {
@@ -172,6 +174,17 @@ async function uploadRelease() {
   ]
 
   const existingAssets = release.assets || []
+
+  // Xóa các asset cũ hoặc asset xung đột (ví dụ MyDownloader-Update-*.zip khiến bản cũ 1.0.4 chạy script lỗi)
+  for (const a of existingAssets) {
+    if (a.name.startsWith('MyDownloader-Update-')) {
+      console.log(`  -> Đang xóa asset xung đột '${a.name}' để bản v1.0.4 tải qua bộ cài Setup an toàn...`)
+      await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/assets/${a.id}`, {
+        method: 'DELETE',
+        headers
+      })
+    }
+  }
 
   for (const filename of filesToUpload) {
     const filePath = path.join(distDir, filename)

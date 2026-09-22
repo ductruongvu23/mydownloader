@@ -562,9 +562,12 @@ function registerIpcHandlers() {
     }
   })
 
-  ipcMain.handle('shell:open', (_e, filePath) => {
-    if (filePath && fs.existsSync(filePath)) {
-      shell.openPath(filePath)
+  ipcMain.handle('shell:open', (_e, targetPath) => {
+    if (!targetPath) return
+    if (typeof targetPath === 'string' && (targetPath.startsWith('http://') || targetPath.startsWith('https://'))) {
+      shell.openExternal(targetPath)
+    } else if (fs.existsSync(targetPath)) {
+      shell.openPath(targetPath)
     }
   })
 
@@ -666,9 +669,9 @@ async function checkForUpdate() {
 
     const assets = release.assets || []
     
-    // Tìm gói cập nhật siêu tốc (MyDownloader-Update-*.zip) và gói cài đặt Setup đầy đủ
-    const fastAsset = assets.find((a) => a.name.startsWith('MyDownloader-Update-') && a.name.endsWith('.zip'))
-    const setupAsset = assets.find((a) => a.name.includes('Setup') && a.name.endsWith('.exe')) || assets.find((a) => a.name.endsWith('.exe'))
+    // Tìm gói cập nhật siêu tốc (MyDownloader-FastUpdate-*.zip hoặc MyDownloader-Update-*.zip) và gói cài đặt Setup đầy đủ
+    const fastAsset = assets.find((a) => (a.name.startsWith('MyDownloader-FastUpdate-') || a.name.startsWith('MyDownloader-Update-')) && a.name.endsWith('.zip'))
+    const setupAsset = assets.find((a) => (a.name.includes('Setup') || a.name.includes('setup')) && a.name.endsWith('.exe')) || assets.find((a) => a.name.endsWith('.exe'))
 
     // Xác định có thể dùng Fast In-Place Update: khi app đã đóng gói và có gói zip cập nhật
     const isPortable = Boolean(process.env.PORTABLE_EXECUTABLE_DIR)
@@ -769,6 +772,7 @@ async function installUpdateFile(installerPath) {
 
     const targetAsar = path.join(process.resourcesPath, 'app.asar')
     const targetBak = path.join(process.resourcesPath, 'app.asar.bak')
+    const elevateExe = path.join(process.resourcesPath, 'elevate.exe')
     const appExe = process.execPath
     const pid = process.pid
 
@@ -808,6 +812,13 @@ echo Thu ghi de app.asar lan %RETRY%... >> "${logPath}"
 copy /y "${installerPath}" "${targetAsar}" >> "${logPath}" 2>&1
 if not errorlevel 1 goto copy_success
 
+:: Neu copy truc tiep that bai (vi du Access Denied tren Program Files), thu bang elevate.exe
+if exist "${elevateExe}" (
+    echo Thu ghi de voi quyen Administrator qua elevate.exe... >> "${logPath}"
+    "${elevateExe}" -wait cmd.exe /c "copy /y \"${installerPath}\" \"${targetAsar}\"" >> "${logPath}" 2>&1
+    if not errorlevel 1 goto copy_success
+)
+
 set /a RETRY+=1
 if %RETRY% geq 15 goto copy_fail
 ping 127.0.0.1 -n 2 >nul
@@ -846,13 +857,23 @@ start "" "${appExe}"
   }
 
   // Trường hợp 2: Full Setup Installer (.exe)
-  const child = spawn(installerPath, [], {
-    detached: true,
-    stdio: 'ignore'
+  const { shell } = await import('electron')
+  if (tray) {
+    try { tray.destroy(); tray = null } catch {}
+  }
+  BrowserWindow.getAllWindows().forEach((w) => {
+    try { w.destroy() } catch {}
   })
-  child.unref()
+
+  // Thử mở bằng shell.openPath để Windows kích hoạt UAC elevation prompt cho NSIS
+  try {
+    await shell.openPath(installerPath)
+  } catch {
+    spawn(installerPath, [], { detached: true, stdio: 'ignore' })
+  }
+
   app.isQuitting = true
-  app.quit()
+  app.exit(0)
   return { success: true }
 }
 
