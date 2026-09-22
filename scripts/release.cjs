@@ -27,29 +27,28 @@ const OWNER = 'ductruongvu23'
 const REPO = 'mydownloader'
 const RELEASE_NAME = `MyDownloader v${version}`
 
-const RELEASE_NOTES = `# 🚀 MyDownloader v${version}
+const RELEASE_NOTES = `# 🚀 MyDownloader v${version} - Tự động Cập nhật Siêu tốc (~1 MB)
 
-Phiên bản v${version} mang đến nâng cấp lớn cho Extension trình duyệt, cơ chế hoãn hủy bắt link thông minh, nút tải video nổi IDM style và menu chuột phải mở rộng.
+Phiên bản v${version} mang đến cơ chế **Cập nhật Siêu tốc (Fast In-Place Hot-Update)**, giảm hơn 98% dung lượng tải cập nhật từ 88 MB xuống chỉ còn ~1 MB và cập nhật tức thì trong 2 giây!
 
-### ✨ Tính Năng Mới & Nổi Bật
-- 🛡️ **Bắt link thông minh (Hoãn hủy download)**:
-  - Khi bắt link, Extension tạm dừng download của trình duyệt trong khi MyDownloader hiện cửa sổ hỏi.
-  - Chỉ hủy download trên trình duyệt khi người dùng bấm **Bắt đầu tải**.
-  - Nếu bấm **Hủy**, trình duyệt tự động tiếp tục tải bình thường không làm mất file.
-- 🎬 **Nút tải video nổi trên media đang phát (Media Sniffer)**:
-  - Tự động phát hiện video/audio đang phát và hiển thị nút nổi \`[ ⬇ Tải video này | MP4 ]\` ở góc video.
-  - Tab *Media trên trang* trong Extension popup hiển thị đầy đủ danh sách media để tải 1-click.
-- 🎨 **Giao diện Extension Dark Mode hoàn toàn mới**:
-  - Giao diện 2 tab trực quan, hiển thị trạng thái kết nối realtime và công tắc bật/tắt linh hoạt.
-- 🖱️ **Mở rộng Menu ngữ cảnh chuột phải**:
-  - Hỗ trợ tải liên kết, hình ảnh, video/âm thanh và bôi đen văn bản.
+### ✨ Tính Năng Nổi Bật v${version}
+- ⚡ **Fast In-Place Hot-Update (~1 MB thay vì 88 MB)**:
+  - Tự động phát hiện và tải gói vá vi mô \`MyDownloader-Update-${version}.zip\` (chỉ ~1 MB).
+  - Tự động thay thế mã nguồn và khởi động lại trong 2 giây mà không cần cài đặt lại toàn bộ runtime.
+  - Tự động tạo bản sao lưu an toàn \`app.asar.bak\` trước khi tráo đổi.
+- 🪶 **Tối ưu hóa dung lượng lõi**:
+  - Tách triệt để \`node_modules\` dư thừa khỏi gói ứng dụng, giảm kích thước asar từ 68 MB xuống 3.4 MB.
+- 🛡️ **Bắt link thông minh & Hoãn hủy download trình duyệt**.
+- 🎬 **Nút nổi bắt video trực tiếp trên media đang phát (Media Sniffer)**.
+- 🎨 **Giao diện Extension Dark Mode & Menu chuột phải mở rộng**.
 
 ---
 
 ### 📦 Tệp Tải Về
-- **Bản cài đặt Setup**: \`MyDownloader Setup ${version}.exe\`
-- **Bản Portable chạy ngay**: \`MyDownloader ${version}.exe\`
-- **Cấu hình tự động cập nhật**: \`latest.yml\``
+- ⚡ **Gói cập nhật siêu tốc (Cho ứng dụng đã cài đặt)**: \`MyDownloader-Update-${version}.zip\` (~1 MB)
+- 💾 **Bộ cài đặt Setup Windows đầy đủ**: \`MyDownloader Setup ${version}.exe\`
+- 🚀 **Bản Portable chạy ngay không cần cài đặt**: \`MyDownloader ${version}.exe\`
+- 📄 **Cấu hình tự động cập nhật**: \`latest.yml\``
 
 console.log(`\n======================================================`)
 console.log(`🚀 BẮT ĐẦU QUY TRÌNH ĐÓNG GÓI & PHÁT HÀNH TỰ ĐỘNG: ${tag}`)
@@ -114,7 +113,24 @@ async function uploadRelease() {
   }
 
   const distDir = path.resolve(__dirname, '../dist')
+
+  // Tạo gói cập nhật siêu tốc MyDownloader-Update-{version}.zip chứa app.asar
+  const updateZipName = `MyDownloader-Update-${version}.zip`
+  const updateZipPath = path.join(distDir, updateZipName)
+  const asarPath = path.join(distDir, 'win-unpacked/resources/app.asar')
+  if (fs.existsSync(asarPath)) {
+    console.log(`\n  ⚡ Đang đóng gói bản cập nhật siêu tốc: ${updateZipName}...`)
+    try {
+      execSync(`tar -a -cf "${updateZipPath}" -C "${path.dirname(asarPath)}" app.asar`)
+      const zipStat = fs.statSync(updateZipPath)
+      console.log(`  -> [✓] Đã tạo '${updateZipName}' thành công: ${(zipStat.size / (1024 * 1024)).toFixed(2)} MB (${(zipStat.size / 1024).toFixed(0)} KB)`)
+    } catch (e) {
+      console.warn(`  [!] Cảnh báo không tạo được zip cập nhật: ${e.message}`)
+    }
+  }
+
   const filesToUpload = [
+    updateZipName,
     `MyDownloader Setup ${version}.exe`,
     `MyDownloader ${version}.exe`,
     'latest.yml',

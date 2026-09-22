@@ -1,6 +1,6 @@
 {
   "name": "mydownloader",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Trình quản lý tải xuống đa luồng tốc độ cao, giao diện hiện đại và mã nguồn mở cho Windows",
   "type": "module",
   "main": "./out/main/index.js",
@@ -24,19 +24,18 @@
     "test:engine": "node tests/http-engine.test.mjs",
     "benchmark": "node tests/benchmark.mjs"
   },
-  "dependencies": {
-    "@element-plus/icons-vue": "^2.3.1",
-    "element-plus": "^2.8.3",
-    "pinia": "^2.2.2",
-    "vue": "^3.5.8",
-    "vue-i18n": "^9.14.0"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
     "@vitejs/plugin-vue": "^5.1.4",
     "electron": "^32.1.2",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "element-plus": "^2.8.3",
     "isomorphic-git": "^1.42.2",
-    "vite": "^5.4.6"
+    "pinia": "^2.2.2",
+    "vite": "^5.4.6",
+    "vue": "^3.5.8",
+    "vue-i18n": "^9.14.0"
   }
 }

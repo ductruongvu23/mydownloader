@@ -177,10 +177,19 @@
             <div class="update-badge">
               <el-icon color="#38bdf8" :size="18"><Check /></el-icon>
               <span class="update-name">Có phiên bản mới: <b>v{{ updateInfo.latestVersion }}</b></span>
+              <el-tag v-if="updateInfo.isFastUpdate" type="success" size="small" effect="dark" round>
+                ⚡ Cập nhật siêu tốc (~{{ formatBytes(updateInfo.assetSize) }})
+              </el-tag>
             </div>
             <span v-if="updateInfo.assetSize" class="update-size">
               {{ formatBytes(updateInfo.assetSize) }}
+              <span v-if="updateInfo.isFastUpdate" class="size-saving">(giảm 99% so với 88 MB)</span>
             </span>
+          </div>
+
+          <div v-if="updateInfo.isFastUpdate" class="fast-update-banner">
+            <el-icon color="#67c23a"><Check /></el-icon>
+            <span>Cập nhật trực tiếp mã nguồn trong <b>2 giây</b>, không cần tải lại toàn bộ runtime hay mở lại bộ cài Windows.</span>
           </div>
 
           <div v-if="updateInfo.releaseNotes" class="update-notes-box">
@@ -200,6 +209,16 @@
           </div>
 
           <div class="update-action-row">
+            <el-link
+              v-if="updateInfo.setupDownloadUrl"
+              type="info"
+              :underline="false"
+              class="full-installer-link"
+              @click="openSetupUrl"
+            >
+              Tải bộ cài đặt đầy đủ (.exe)
+            </el-link>
+
             <el-button
               v-if="!downloadedInstallerPath"
               type="success"
@@ -207,7 +226,7 @@
               @click="startDownloadUpdate"
             >
               <el-icon class="el-icon--left"><Download /></el-icon>
-              {{ downloadingUpdate ? 'Đang tải bản cập nhật...' : 'Tự động tải về & Cập nhật' }}
+              {{ downloadingUpdate ? 'Đang tải bản cập nhật...' : (updateInfo.isFastUpdate ? `Tải bản cập nhật siêu tốc (${formatBytes(updateInfo.assetSize)})` : 'Tự động tải về & Cập nhật') }}
             </el-button>
 
             <el-button
@@ -216,7 +235,7 @@
               @click="installAndRelaunch"
             >
               <el-icon class="el-icon--left"><VideoPlay /></el-icon>
-              Cài đặt & Khởi động lại ngay
+              {{ updateInfo.isFastUpdate ? 'Cập nhật & Khởi động lại ngay (2s)' : 'Cài đặt & Khởi động lại' }}
             </el-button>
           </div>
         </div>
@@ -235,7 +254,7 @@ const { t } = useI18n()
 const settingsStore = useSettingsStore()
 
 const speedLimitKB = ref(0)
-const currentAppVersion = ref('1.0.3')
+const currentAppVersion = ref('1.0.4')
 const checkingUpdate = ref(false)
 const lastCheckStatus = ref('')
 const updateInfo = ref(null)
@@ -379,6 +398,12 @@ async function installAndRelaunch() {
     await window.api.installUpdate(downloadedInstallerPath.value)
   } catch (err) {
     ElMessage.error(`Lỗi khởi chạy cài đặt: ${err.message}`)
+  }
+}
+
+function openSetupUrl() {
+  if (updateInfo.value?.setupDownloadUrl) {
+    window.api.openFile(updateInfo.value.setupDownloadUrl)
   }
 }
 </script>
@@ -571,6 +596,39 @@ async function installAndRelaunch() {
 
 .update-action-row {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 16px;
+}
+
+.size-saving {
+  color: #67c23a;
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.fast-update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(103, 194, 58, 0.1);
+  border: 1px solid rgba(103, 194, 58, 0.25);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.full-installer-link {
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.full-installer-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
 }
 </style>

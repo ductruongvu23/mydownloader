@@ -644,7 +644,16 @@ async function checkForUpdate() {
     const isNewer = compareSemver(latestVersion, currentVersion) > 0
 
     const assets = release.assets || []
-    const setupAsset = assets.find((a) => a.name.endsWith('.exe'))
+    
+    // Tìm gói cập nhật siêu tốc (MyDownloader-Update-*.zip) và gói cài đặt Setup đầy đủ
+    const fastAsset = assets.find((a) => a.name.startsWith('MyDownloader-Update-') && a.name.endsWith('.zip'))
+    const setupAsset = assets.find((a) => a.name.includes('Setup') && a.name.endsWith('.exe')) || assets.find((a) => a.name.endsWith('.exe'))
+
+    // Xác định có thể dùng Fast In-Place Update: khi app đã đóng gói và có gói zip cập nhật
+    const isPortable = Boolean(process.env.PORTABLE_EXECUTABLE_DIR)
+    const canFastUpdate = app.isPackaged && !isPortable && Boolean(fastAsset)
+
+    const chosenAsset = canFastUpdate ? fastAsset : (setupAsset || fastAsset)
 
     return {
       updateAvailable: isNewer,
@@ -653,9 +662,13 @@ async function checkForUpdate() {
       releaseName: release.name || release.tag_name,
       releaseNotes: release.body || '',
       publishedAt: release.published_at,
-      downloadUrl: setupAsset ? setupAsset.browser_download_url : release.html_url,
-      assetName: setupAsset ? setupAsset.name : '',
-      assetSize: setupAsset ? setupAsset.size : 0
+      isFastUpdate: canFastUpdate,
+      downloadUrl: chosenAsset ? chosenAsset.browser_download_url : release.html_url,
+      assetName: chosenAsset ? chosenAsset.name : '',
+      assetSize: chosenAsset ? chosenAsset.size : 0,
+      fastUpdateSize: fastAsset ? fastAsset.size : 0,
+      setupUpdateSize: setupAsset ? setupAsset.size : 0,
+      setupDownloadUrl: setupAsset ? setupAsset.browser_download_url : ''
     }
   } catch (err) {
     console.error('[Updater] Lỗi kiểm tra cập nhật:', err.message)
@@ -664,52 +677,133 @@ async function checkForUpdate() {
 }
 
 async function downloadUpdateAsset(downloadUrl, assetName, onProgress) {
-  const tempDir = app.getPath('temp')
-  const destPath = path.join(tempDir, assetName || `MyDownloader-Setup-${Date.now()}.exe`)
+  try {
+    const tempDir = app.getPath('temp')
+    const destPath = path.join(tempDir, assetName || `MyDownloader-Update-${Date.now()}.zip`)
 
-  const res = await fetch(downloadUrl, {
-    headers: { 'User-Agent': `MyDownloader/${app.getVersion()}` }
-  })
-  if (!res.ok) throw new Error(`Tải tệp cập nhật thất bại: HTTP ${res.status}`)
+    const res = await fetch(downloadUrl, {
+      headers: { 'User-Agent': `MyDownloader/${app.getVersion()}` }
+    })
+    if (!res.ok) throw new Error(`Tải tệp cập nhật thất bại: HTTP ${res.status}`)
 
-  const totalBytes = Number(res.headers.get('content-length')) || 0
-  const fileStream = fs.createWriteStream(destPath)
-  let receivedBytes = 0
+    const totalBytes = Number(res.headers.get('content-length')) || 0
+    const fileStream = fs.createWriteStream(destPath)
+    let receivedBytes = 0
 
-  const reader = res.body.getReader()
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    fileStream.write(Buffer.from(value))
-    receivedBytes += value.length
-    if (totalBytes > 0 && onProgress) {
-      const percent = Math.min(100, Math.round((receivedBytes / totalBytes) * 100))
-      onProgress({ percent, receivedBytes, totalBytes })
+    const reader = res.body.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      fileStream.write(Buffer.from(value))
+      receivedBytes += value.length
+      if (totalBytes > 0 && onProgress) {
+        const percent = Math.min(100, Math.round((receivedBytes / totalBytes) * 100))
+        onProgress({ percent, receivedBytes, totalBytes })
+      }
     }
+
+    await new Promise((resolve, reject) => {
+      fileStream.end()
+      fileStream.on('finish', resolve)
+      fileStream.on('error', reject)
+    })
+
+    // Nếu là tệp .zip (Fast Update), tự động giải nén app.asar
+    if (assetName && assetName.endsWith('.zip')) {
+      const extractDir = path.join(tempDir, 'mydownloader-fast-update')
+      if (!fs.existsSync(extractDir)) {
+        fs.mkdirSync(extractDir, { recursive: true })
+      }
+      const { execSync } = await import('child_process')
+      execSync(`tar -xf "${destPath}" -C "${extractDir}"`)
+
+      const extractedAsar = path.join(extractDir, 'app.asar')
+      if (!fs.existsSync(extractedAsar)) {
+        throw new Error('Gói cập nhật không chứa tệp app.asar hợp lệ.')
+      }
+      return { success: true, destPath: extractedAsar, isFastUpdate: true }
+    }
+
+    return { success: true, destPath, isFastUpdate: false }
+  } catch (err) {
+    console.error('[Updater] Lỗi tải bản cập nhật:', err.message)
+    return { success: false, error: err.message }
   }
-
-  await new Promise((resolve, reject) => {
-    fileStream.end()
-    fileStream.on('finish', resolve)
-    fileStream.on('error', reject)
-  })
-
-  return destPath
 }
 
-function installUpdateFile(installerPath) {
+async function installUpdateFile(installerPath) {
   if (!installerPath || !fs.existsSync(installerPath)) {
     throw new Error('Không tìm thấy tệp cài đặt cập nhật đã tải về.')
   }
-  import('child_process').then(({ spawn }) => {
-    const child = spawn(installerPath, [], {
+
+  const { spawn } = await import('child_process')
+
+  // Trường hợp 1: Fast In-Place Update (tệp app.asar)
+  if (installerPath.endsWith('.asar')) {
+    if (!app.isPackaged) {
+      throw new Error('Ứng dụng đang chạy ở chế độ dev (phát triển), chỉ có thể cập nhật trong bản đã cài đặt.')
+    }
+
+    const targetAsar = path.join(process.resourcesPath, 'app.asar')
+    const appExe = process.execPath
+    const pid = process.pid
+
+    // Tạo kịch bản batch độc lập để tráo đổi asar sau khi tiến trình Electron thoát hẳn
+    const scriptPath = path.join(app.getPath('temp'), `patch-update-${Date.now()}.bat`)
+    const batContent = `@echo off
+chcp 65001 >nul
+echo [MyDownloader] Dang ap dung ban cap nhat sieu toc...
+
+:: Cho tien trinh Electron cu thoat han
+:wait_loop
+tasklist /fi "pid eq %1" 2>nul | findstr "%1" >nul
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >nul
+    goto wait_loop
+)
+
+:: Sao luu ban hien tai
+copy /y "%~2" "%~2.bak" >nul 2>&1
+
+:: Ghi de app.asar moi
+copy /y "%~3" "%~2" >nul 2>&1
+if errorlevel 1 (
+    move /y "%~3" "%~2" >nul 2>&1
+)
+
+:: Khoi dong lai ung dung
+start "" "%~4"
+
+:: Xoa tệp tạm và tự xóa batch script
+del "%~3" >nul 2>&1
+(goto) 2>nul & del "%~f0"
+`
+
+    fs.writeFileSync(scriptPath, batContent, 'utf8')
+
+    // Chạy helper script detached hoàn toàn
+    const child = spawn('cmd.exe', ['/c', scriptPath, String(pid), targetAsar, installerPath, appExe], {
       detached: true,
-      stdio: 'ignore'
+      stdio: 'ignore',
+      windowsHide: true
     })
     child.unref()
+
+    // Thoát ứng dụng ngay để nhả file lock
     app.isQuitting = true
-    app.quit()
+    app.exit(0)
+    return { success: true }
+  }
+
+  // Trường hợp 2: Full Setup Installer (.exe)
+  const child = spawn(installerPath, [], {
+    detached: true,
+    stdio: 'ignore'
   })
+  child.unref()
+  app.isQuitting = true
+  app.quit()
+  return { success: true }
 }
 
 app.whenReady().then(() => {
