@@ -7,7 +7,7 @@
       </div>
       <div class="logo-text-wrap">
         <span class="logo-text">MyDownloader</span>
-        <span class="logo-version">v1.0.3</span>
+        <span class="logo-version">v{{ appVersion }}</span>
       </div>
     </div>
 
@@ -57,12 +57,22 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTasksStore } from '../stores/tasks'
 
 const { t } = useI18n()
 const tasksStore = useTasksStore()
+const appVersion = ref('1.0.6')
+
+onMounted(async () => {
+  if (window.api?.getAppVersion) {
+    try {
+      const v = await window.api.getAppVersion()
+      if (v) appVersion.value = v
+    } catch {}
+  }
+})
 
 const navItems = computed(() => [
   { id: 'all', label: 'app.all', icon: 'Files', badge: tasksStore.counts.all, badgeType: 'neutral' },
