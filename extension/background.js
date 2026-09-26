@@ -1,4 +1,4 @@
-// extension/background.js - MyDownloader Chrome Extension Service Worker v1.2.0
+// extension/background.js - MyDownloader Chrome Extension Service Worker v1.0.6
 
 const handledDownloads = new Set()
 const tabMediaMap = new Map() // tabId -> Array<{ url, title, filename, ext, type }>
@@ -183,8 +183,14 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   if (req.action === 'get_tab_best_media') {
     const tabId = sender.tab ? sender.tab.id : req.tabId
     const mediaList = tabMediaMap.get(tabId) || []
-    // Ưu tiên tệp mp4 hoặc video playback hoàn chỉnh nhất
-    const best = mediaList.length > 0 ? mediaList[mediaList.length - 1] : null
+    // Ưu tiên tệp video thực sự, loại trừ audio thuần nếu có video
+    const videos = mediaList.filter((m) => m.type === 'video')
+    const best =
+      videos.length > 0
+        ? videos[videos.length - 1]
+        : mediaList.length > 0
+          ? mediaList[mediaList.length - 1]
+          : null
     sendResponse({ media: best, mediaList })
     return true
   }
@@ -238,7 +244,13 @@ async function sendToMyDownloader(url, referrer = '', filename = '', showNotific
   try {
     let cookieHeader = ''
     try {
-      const cookies = await chrome.cookies.getAll({ url })
+      let cookies = await chrome.cookies.getAll({ url })
+      // Nếu là CDN (như tiktokcdn, byteoversea, googlevideo, fbcdn) thì cookie thường nằm ở trang gốc (referrer)
+      if ((!cookies || cookies.length === 0) && referrer && /^https?:\/\//i.test(referrer)) {
+        try {
+          cookies = await chrome.cookies.getAll({ url: referrer })
+        } catch {}
+      }
       if (cookies && cookies.length > 0) {
         cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ')
       }

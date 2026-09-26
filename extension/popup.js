@@ -1,4 +1,4 @@
-// extension/popup.js - MyDownloader Extension Controller v1.2.0
+// extension/popup.js - MyDownloader Extension Controller v1.0.6
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Elements
@@ -20,6 +20,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const scanMediaBtn = document.getElementById('scanMediaBtn')
   const mediaListContainer = document.getElementById('mediaListContainer')
+  const extVersionText = document.getElementById('extVersionText')
+
+  // Hiển thị phiên bản extension thực tế từ manifest
+  try {
+    const manifest = chrome.runtime.getManifest()
+    if (extVersionText && manifest?.version) {
+      extVersionText.textContent = `Extension v${manifest.version}`
+    }
+  } catch {}
 
   // Tab switching
   tabSettingsBtn.addEventListener('click', () => {

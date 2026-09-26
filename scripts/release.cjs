@@ -36,30 +36,24 @@ if (fs.existsSync(manifestPath)) {
   console.log(`[✓] Đã đồng bộ phiên bản Extension manifest.json thành: ${version}`)
 }
 
-const RELEASE_NOTES = `# 🚀 MyDownloader v${version} - Bản vá Cập nhật Tại chỗ & Đồng bộ Hệ thống
+const RELEASE_NOTES = `# 🚀 MyDownloader v${version} - Bản vá Cập nhật Tại chỗ & Khắc phục Extension Media
 
-Phiên bản v${version} khắc phục hoàn toàn sự cố khi cập nhật tại chỗ (Hot-Update không cần tải lại file Setup 88MB), tối ưu độ trễ giải phóng file lock của Windows và đảm bảo giao diện luôn hiển thị chính xác phiên bản đang chạy!
+Phiên bản v${version} khắc phục hoàn toàn sự cố khi cập nhật tại chỗ, sửa lỗi tiện ích extension bắt được video nhưng không tải được xuống và triệt tiêu xung đột với TikTok (chỉ phát âm thanh)!
 
 ### ✨ Tính Năng & Bản Vá v${version}
-- 🛠️ **Sửa lỗi cập nhật tại chỗ (Hot-Update) triệt để**:
-  - Khắc phục lỗi tiến trình cmd/batch chạy ngầm bị crash do lệnh \`timeout\` không hỗ trợ input redirection trên Windows.
-  - Sử dụng cơ chế chờ \`ping\` tương thích 100% môi trường Windows background process.
-  - Nhúng trực tiếp đường dẫn tuyệt đối (tránh lỗi ngắt tham số khoảng trắng).
-  - Vòng lặp tự động retry lên đến 15 lần (chờ Windows giải phóng lock \`app.asar\`).
-  - Ghi toàn bộ nhật ký cập nhật vào \`%TEMP%\\mydownloader-update.log\` giúp chẩn đoán sự cố tức thì.
-- 🔄 **Đồng bộ phiên bản động**:
-  - Giao diện Settings tự động lấy phiên bản thực tế của runtime (\`app.getVersion()\`) qua IPC \`app:version\`.
-- 🎬 **Bắt Video Media & YouTube Thông Minh**:
-  - Tích hợp quyền \`webRequest\` và bộ sniff luồng mạng trực tiếp, bóc tách luồng HTTP video thực tế thay vì lấy \`blob:\` nội bộ.
-  - Tự động bóc tách stream MP4 trực tiếp từ YouTube \`ytInitialPlayerResponse\`.
-  - Tối ưu hóa tải luồng \`googlevideo.com\` đa luồng mượt mà, tự động gắn Referer và làm sạch query phân mảnh.
-- 🧩 **Đồng bộ & Đóng gói Extension cùng Ứng Dụng**:
-  - Thư mục \`extension\` được cài đặt trực tiếp vào \`resources/extension\` của ứng dụng.
-  - Bổ sung nút 1-click **Mở thư mục Extension trên máy** trong mục Cài đặt.
-- ⚡ **Gói cập nhật siêu tốc**:
-  - \`MyDownloader-FastUpdate-${version}.zip\` chỉ ~660 KB thay vì phải tải lại 88 MB bộ cài!
-- 🛡️ **Tương thích nâng cấp mượt mà từ bản cũ (như v1.0.4)**:
-  - Bộ cài đặt Setup Windows dual-mode tự động phát hiện bản cài cũ trong Program Files và yêu cầu nâng cấp quyền hệ thống UAC mượt mà không gây lỗi phân quyền hay xung đột tiến trình!
+- 🎬 **Khắc phục lỗi bắt & tải video trên Extension**:
+  - Tự động gắn kèm Referer, Origin và Cookies phiên từ trang gốc cho các video CDN (TikTok, YouTube, Facebook, Twitter).
+  - Tự động nhận diện phần mở rộng (.mp4, .webm, .m4a, .mp3...) từ Content-Type phản hồi khi máy chủ không đặt tên tệp.
+  - Tối ưu hóa luồng tải CDN tránh bị 403 Forbidden và fallback mượt mà sang stream đơn luồng khi CDN trả về HTTP 200.
+  - Sửa lỗi nạp Cookie và Headers trong hộp thoại AddTaskModal khi nhận liên kết từ tiện ích mở rộng.
+- 🎵 **Khắc phục xung đột TikTok chỉ phát âm thanh**:
+  - Nút tải nổi được chuyển sang \`position: fixed\` gắn trực tiếp trên \`document.body\`, loại bỏ hoàn toàn việc can thiệp vào container DOM của TikTok player làm vỡ layout co khung hình video về 0px.
+  - Tích hợp bộ bóc tách stream TikTok trực tiếp từ \`__UNIVERSAL_DATA_FOR_REHYDRATION__\` & \`SIGI_STATE\` cho phép tải trực tiếp tệp MP4 gốc.
+  - Debounce bộ lắng nghe MutationObserver giúp lướt xem TikTok mượt mà, không tốn tài nguyên CPU.
+- 🛠️ **Hệ thống Hot-Update & Đóng gói**:
+  - Khắc phục lỗi cập nhật tại chỗ với batch script Windows retry 15 lần.
+  - Giao diện Settings tự động lấy phiên bản thực tế của runtime qua IPC \`app:version\`.
+  - Bộ cài đặt Setup Windows dual-mode tự động tương thích nâng cấp mượt mà từ các bản cũ.
 
 ---
 
@@ -156,8 +150,8 @@ for (const c of gitCandidates) {
 }
 
 try {
-  execSync(`${gitBin} add package.json extension/manifest.json electron-builder.json scripts/release.cjs src/`, { stdio: 'ignore' })
-  execSync(`${gitBin} commit -m "chore(release): bump version to ${tag}"`, { stdio: 'ignore' })
+  execSync(`${gitBin} add .`, { stdio: 'ignore' })
+  execSync(`${gitBin} commit -m "fix(extension): fix video download and resolve tiktok playback conflict"`, { stdio: 'ignore' })
 } catch {}
 try {
   execSync(`${gitBin} tag -a ${tag} -m "${RELEASE_NAME}" -f`, { stdio: 'ignore' })

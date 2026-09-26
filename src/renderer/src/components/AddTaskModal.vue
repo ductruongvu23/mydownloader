@@ -179,10 +179,13 @@ watch(
       if (props.initialData) {
         if (props.initialData.url) urlText.value = props.initialData.url
         if (props.initialData.filename) customFilename.value = props.initialData.filename
-        if (props.initialData.cookies) cookie.value = props.initialData.cookies
+        const initialCookie = props.initialData.cookies || props.initialData.headers?.Cookie || props.initialData.headers?.cookie || ''
+        if (initialCookie) cookie.value = initialCookie
         if (props.initialData.threads) threads.value = props.initialData.threads
-        if (props.initialData.headers?.Referer) referer.value = props.initialData.headers.Referer
-        if (props.initialData.headers?.['User-Agent']) userAgent.value = props.initialData.headers['User-Agent']
+        const initialReferer = props.initialData.headers?.Referer || props.initialData.headers?.referer || props.initialData.referrer || ''
+        if (initialReferer) referer.value = initialReferer
+        const initialUA = props.initialData.headers?.['User-Agent'] || props.initialData.headers?.['user-agent'] || props.initialData.userAgent || ''
+        if (initialUA) userAgent.value = initialUA
       }
     } else {
       urlText.value = ''

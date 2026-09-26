@@ -47,7 +47,24 @@ function filenameFrom(res, url) {
       }
     } catch {}
   }
-  return sanitize(name.trim()) || 'download'
+  name = sanitize(name.trim()) || 'download'
+  if (!path.extname(name)) {
+    const ct = (res.headers?.get('content-type') || '').toLowerCase()
+    if (ct.includes('video/mp4')) name += '.mp4'
+    else if (ct.includes('video/webm')) name += '.webm'
+    else if (ct.includes('video/quicktime')) name += '.mov'
+    else if (ct.includes('video/x-matroska')) name += '.mkv'
+    else if (ct.includes('audio/mpeg') || ct.includes('audio/mp3')) name += '.mp3'
+    else if (ct.includes('audio/mp4') || ct.includes('audio/m4a')) name += '.m4a'
+    else if (ct.includes('audio/ogg')) name += '.ogg'
+    else if (ct.includes('image/jpeg')) name += '.jpg'
+    else if (ct.includes('image/png')) name += '.png'
+    else if (ct.includes('application/pdf')) name += '.pdf'
+    else if (ct.includes('application/zip')) name += '.zip'
+    else if (ct.startsWith('video/')) name += '.mp4'
+    else if (ct.startsWith('audio/')) name += '.mp3'
+  }
+  return name
 }
 
 /** Nếu file đã tồn tại thì đổi thành "ten (1).ext", "ten (2).ext"... */
@@ -216,6 +233,29 @@ class HttpDownload extends EventEmitter {
       } catch {}
     }
 
+    // Tối ưu hóa cho TikTok, ByteDance CDN
+    const isTikTok = /tiktok\.com|byteoversea\.com|ibytedtos\.com|tiktokcdn\.com/i.test(this.url)
+    if (isTikTok) {
+      if (!this.headers['Referer'] && !this.headers['referer']) {
+        this.headers['Referer'] = 'https://www.tiktok.com/'
+      }
+      if (!this.headers['Origin']) {
+        this.headers['Origin'] = 'https://www.tiktok.com'
+      }
+    }
+
+    // Tối ưu hóa cho Facebook / Instagram CDN
+    const isMeta = /fbcdn\.net|facebook\.com|cdninstagram\.com|instagram\.com/i.test(this.url)
+    if (isMeta && !this.headers['Referer'] && !this.headers['referer']) {
+      this.headers['Referer'] = 'https://www.facebook.com/'
+    }
+
+    // Tối ưu hóa cho X (Twitter) CDN
+    const isTwitter = /twimg\.com|twitter\.com|x\.com/i.test(this.url)
+    if (isTwitter && !this.headers['Referer'] && !this.headers['referer']) {
+      this.headers['Referer'] = 'https://x.com/'
+    }
+
     // 6. DNS Prefetch
     try {
       const parsed = new URL(this.url)
@@ -289,8 +329,10 @@ class HttpDownload extends EventEmitter {
 
     // Tự động tính toán số luồng thích ứng dựa trên dung lượng thực tế
     if (this.adaptive) {
-      this.threads = this.calculateOptimalThreads(this.size, this.requestedThreads)
+      this.threads = isTikTok ? 1 : this.calculateOptimalThreads(this.size, this.requestedThreads)
       console.log(`[HttpDownload] 🎯 Dò luồng thích ứng: Thiết lập ${this.threads} luồng cho tệp dung lượng ${this.size} bytes`)
+    } else if (isTikTok) {
+      this.threads = 1
     }
 
     console.log(
@@ -440,6 +482,18 @@ class HttpDownload extends EventEmitter {
     if (res.status !== okStatus) {
       if (!this.ranges && res.status === 206) {
         // OK
+      } else if (this.ranges && res.status === 200 && seg.start === 0) {
+        // Server trả toàn bộ file cho segment 0: chuyển mượt sang tải đơn luồng toàn bộ file thay vì báo lỗi
+        console.warn('[HttpDownload] ⚠️ Server trả HTTP 200 thay vì 206. Tự động chuyển phân đoạn 0 sang tải đơn luồng toàn bộ tệp.')
+        this.ranges = false
+        this.threads = 1
+        seg.end = this.size ? this.size - 1 : Infinity
+        for (const s of this.segments) {
+          if (s !== seg) {
+            s.state = 'done'
+            try { s.ctl?.abort() } catch {}
+          }
+        }
       } else {
         const fatal =
           (this.ranges && res.status === 200) ||

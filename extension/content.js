@@ -1,26 +1,120 @@
 // extension/content.js - MyDownloader Media Sniffer & Floating Download Bar
+// Tương thích tối đa, chống lỗi 'Extension context invalidated' khi cập nhật / tải lại extension
 
 ;(function () {
   'use strict'
 
+  let isInvalidated = false
   let videoBarEnabled = true
+  let observer = null
+  const intervals = new Set()
+
+  function isContextValid() {
+    if (isInvalidated) return false
+    try {
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
+        isInvalidated = true
+        return false
+      }
+      return true
+    } catch {
+      isInvalidated = true
+      return false
+    }
+  }
+
+  function cleanupOnInvalidated() {
+    isInvalidated = true
+    try {
+      if (observer) {
+        observer.disconnect()
+        observer = null
+      }
+    } catch {}
+    intervals.forEach((timer) => {
+      try { clearInterval(timer) } catch {}
+    })
+    intervals.clear()
+    try {
+      if (typeof scanDebounceTimer !== 'undefined' && scanDebounceTimer) {
+        clearTimeout(scanDebounceTimer)
+        scanDebounceTimer = null
+      }
+    } catch {}
+    try {
+      if (typeof activeBars !== 'undefined') {
+        activeBars.clear()
+      }
+    } catch {}
+    try {
+      document.querySelectorAll('.mydownloader-floating-bar').forEach((b) => b.remove())
+    } catch {}
+  }
+
+  // Bắt lỗi toàn cục ngăn chặn console cảnh báo lỗi context invalidated từ Chrome
+  window.addEventListener(
+    'error',
+    (event) => {
+      if (event?.message && event.message.includes('Extension context invalidated')) {
+        event.stopImmediatePropagation()
+        cleanupOnInvalidated()
+      }
+    },
+    true
+  )
+
+  // Gửi thông điệp an toàn tới background script
+  function safeSendMessage(payload, callback) {
+    if (!isContextValid()) {
+      cleanupOnInvalidated()
+      return
+    }
+    try {
+      chrome.runtime.sendMessage(payload, (res) => {
+        const err = chrome.runtime?.lastError
+        if (err) {
+          if (err.message && err.message.includes('Extension context invalidated')) {
+            cleanupOnInvalidated()
+          }
+          return
+        }
+        if (callback && typeof callback === 'function') {
+          callback(res)
+        }
+      })
+    } catch (err) {
+      if (err?.message && err.message.includes('Extension context invalidated')) {
+        cleanupOnInvalidated()
+      }
+    }
+  }
 
   // Đọc cài đặt hiển thị nút nổi
-  chrome.storage.local.get(['videoBarEnabled'], (res) => {
-    if (res.videoBarEnabled !== undefined) {
-      videoBarEnabled = res.videoBarEnabled
-    }
-  })
-
-  // Lắng nghe thay đổi cài đặt từ popup
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.videoBarEnabled) {
-      videoBarEnabled = changes.videoBarEnabled.newValue
-      document.querySelectorAll('.mydownloader-floating-bar').forEach((bar) => {
-        bar.style.display = videoBarEnabled ? 'inline-flex' : 'none'
+  try {
+    if (isContextValid() && chrome.storage?.local) {
+      chrome.storage.local.get(['videoBarEnabled'], (res) => {
+        if (!isContextValid()) return
+        if (res && res.videoBarEnabled !== undefined) {
+          videoBarEnabled = res.videoBarEnabled
+        }
       })
     }
-  })
+  } catch {}
+
+  // Lắng nghe thay đổi cài đặt từ popup
+  try {
+    if (isContextValid() && chrome.storage?.onChanged) {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (!isContextValid()) return
+        if (area === 'local' && changes.videoBarEnabled) {
+          videoBarEnabled = changes.videoBarEnabled.newValue
+          document.querySelectorAll('.mydownloader-floating-bar').forEach((bar) => {
+            bar.style.display = videoBarEnabled ? 'inline-flex' : 'none'
+          })
+        }
+      })
+    }
+  } catch {}
 
   const handledVideos = new WeakSet()
   const reportedMediaUrls = new Set()
@@ -35,10 +129,12 @@
   function cleanTitle(str) {
     if (!str) return 'Video'
     return str
+      .replace(/^\(\d+\)\s*/, '') // Xóa số thông báo YouTube (1) Video...
+      .replace(/\s*-\s*YouTube$/i, '')
       .replace(/[\\/:*?"<>|]/g, '_')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 60)
+      .slice(0, 80)
   }
 
   // Bóc tách luồng phát trực tiếp từ YouTube khi xem video
@@ -71,6 +167,60 @@
     return null
   }
 
+  // Bóc tách luồng phát trực tiếp từ TikTok khi xem video
+  function extractTikTokStream() {
+    try {
+      if (!location.hostname.includes('tiktok.com')) {
+        return null
+      }
+
+      // 1. Thử đọc từ thẻ __UNIVERSAL_DATA_FOR_REHYDRATION__ (chuẩn mới nhất của TikTok Web)
+      const rehydrationEl = document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__')
+      if (rehydrationEl && rehydrationEl.textContent) {
+        try {
+          const data = JSON.parse(rehydrationEl.textContent)
+          const defaultScope = data?.['__DEFAULT_SCOPE__'] || {}
+          const itemStruct =
+            defaultScope['webapp.video-detail']?.itemInfo?.itemStruct ||
+            defaultScope['seo.video-detail']?.itemInfo?.itemStruct
+          if (itemStruct?.video) {
+            const videoUrl = itemStruct.video.playAddr || itemStruct.video.downloadAddr
+            if (videoUrl) {
+              return {
+                url: videoUrl,
+                title: cleanTitle(itemStruct.desc || document.title),
+                ext: 'MP4'
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // 2. Thử đọc từ thẻ SIGI_STATE (chuẩn cổ điển của TikTok)
+      const sigiEl = document.getElementById('SIGI_STATE')
+      if (sigiEl && sigiEl.textContent) {
+        try {
+          const data = JSON.parse(sigiEl.textContent)
+          const items = data?.ItemModule || {}
+          const pathMatch = location.pathname.match(/\/video\/(\d+)/)
+          const currentId = pathMatch ? pathMatch[1] : Object.keys(items)[0]
+          const item = items[currentId] || Object.values(items)[0]
+          if (item?.video) {
+            const videoUrl = item.video.playAddr || item.video.downloadAddr
+            if (videoUrl) {
+              return {
+                url: videoUrl,
+                title: cleanTitle(item.desc || document.title),
+                ext: 'MP4'
+              }
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+    return null
+  }
+
   function getVideoSource(video) {
     let src = video.currentSrc || video.src
     if (!src) {
@@ -97,13 +247,14 @@
   // Báo cáo media lên background
   function reportMedia(url, type = 'video') {
     if (!url || reportedMediaUrls.has(url)) return
+    if (!isContextValid()) return
     reportedMediaUrls.add(url)
 
     const ext = getMediaExtension(url)
     const title = cleanTitle(document.title) || 'Media'
     const filename = `${title}.${ext.toLowerCase()}`
 
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       action: 'media_detected',
       media: {
         url,
@@ -116,9 +267,26 @@
     })
   }
 
+  const activeBars = new Set()
+
+  function updateAllBars() {
+    if (!isContextValid()) {
+      cleanupOnInvalidated()
+      return
+    }
+    activeBars.forEach((b) => {
+      try {
+        b._updatePosition?.()
+      } catch {}
+    })
+  }
+
+  window.addEventListener('scroll', updateAllBars, { passive: true })
+  window.addEventListener('resize', updateAllBars, { passive: true })
+
   // Tạo và gắn nút nổi vào thẻ video
   function attachFloatingBar(video) {
-    if (handledVideos.has(video)) return
+    if (!video || handledVideos.has(video)) return
     handledVideos.add(video)
 
     // Tạo thanh nút bấm
@@ -133,36 +301,69 @@
       <span class="mydownloader-floating-tag">${ext}</span>
     `
 
-    // Đưa vào DOM: Nếu container cha có thể gắn relative, gắn vào cha; nếu không đính body
-    const parent = video.parentElement || document.body
-    if (getComputedStyle(parent).position === 'static') {
-      parent.style.position = 'relative'
+    // QUAN TRỌNG: Gắn nút vào document.body thay vì chèn vào video.parentElement.
+    // Việc thay đổi position hoặc chèn nút vào cha của video trên TikTok / YouTube Shorts làm vỡ CSS layout
+    // khiến khung hình video bị co về 0px (đen màn hình chỉ nghe thấy tiếng)!
+    const hostEl = document.body || document.documentElement
+    if (hostEl) {
+      hostEl.appendChild(bar)
     }
-    parent.appendChild(bar)
 
     function updatePosition() {
+      if (!isContextValid()) {
+        cleanupOnInvalidated()
+        return
+      }
       if (!video.isConnected) {
         bar.remove()
+        activeBars.delete(bar)
         return
       }
       const rect = video.getBoundingClientRect()
-      if (rect.width < 120 || rect.height < 80) {
+      // Nếu video bị ẩn, kích thước quá bé hoặc nằm ngoài khung nhìn viewport
+      if (
+        rect.width < 120 ||
+        rect.height < 80 ||
+        rect.bottom <= 0 ||
+        rect.top >= window.innerHeight ||
+        rect.right <= 0 ||
+        rect.left >= window.innerWidth
+      ) {
         bar.style.display = 'none'
         return
       }
-      if (videoBarEnabled) bar.style.display = 'inline-flex'
-      const parentRect = parent.getBoundingClientRect()
-      const top = rect.top - parentRect.top + 8
-      const right = parentRect.right - rect.right + 10
-      bar.style.top = `${Math.max(6, top)}px`
-      bar.style.right = `${Math.max(6, right)}px`
+
+      if (videoBarEnabled) {
+        bar.style.display = 'inline-flex'
+      }
+
+      // Đặt vị trí fixed chính xác theo góc trên bên phải của video
+      const top = Math.max(8, rect.top + 8)
+      const left = Math.max(8, rect.right - (bar.offsetWidth || 135) - 10)
+      bar.style.top = `${top}px`
+      bar.style.left = `${left}px`
     }
+
+    bar._updatePosition = updatePosition
+    activeBars.add(bar)
 
     let hideTimer = null
     function showBar() {
+      if (!isContextValid()) {
+        cleanupOnInvalidated()
+        return
+      }
       clearTimeout(hideTimer)
       updatePosition()
-      const src = getVideoSource(video)
+      let src = getVideoSource(video)
+      if (!src) {
+        const yt = extractYouTubeStream()
+        if (yt && yt.url) src = yt.url
+      }
+      if (!src) {
+        const tt = extractTikTokStream()
+        if (tt && tt.url) src = tt.url
+      }
       if (src) {
         const extName = getMediaExtension(src)
         const tag = bar.querySelector('.mydownloader-floating-tag')
@@ -177,15 +378,29 @@
       }, 1800)
     }
 
-    video.addEventListener('mouseenter', showBar)
-    video.addEventListener('mousemove', showBar)
-    video.addEventListener('play', () => {
+    video.addEventListener('mouseenter', () => {
+      if (!isContextValid()) { cleanupOnInvalidated(); return }
       showBar()
-      const src = getVideoSource(video)
+    })
+    video.addEventListener('mousemove', () => {
+      if (!isContextValid()) { cleanupOnInvalidated(); return }
+      showBar()
+    })
+    video.addEventListener('play', () => {
+      if (!isContextValid()) { cleanupOnInvalidated(); return }
+      showBar()
+      let src = getVideoSource(video)
+      if (!src) {
+        const tt = extractTikTokStream()
+        if (tt && tt.url) src = tt.url
+      }
       if (src) reportMedia(src, 'video')
       hideBarDelayed()
     })
-    video.addEventListener('pause', showBar)
+    video.addEventListener('pause', () => {
+      if (!isContextValid()) { cleanupOnInvalidated(); return }
+      showBar()
+    })
     video.addEventListener('mouseleave', hideBarDelayed)
 
     bar.addEventListener('mouseenter', () => clearTimeout(hideTimer))
@@ -196,13 +411,18 @@
       e.preventDefault()
       e.stopPropagation()
 
+      if (!isContextValid()) {
+        cleanupOnInvalidated()
+        alert('Tiện ích MyDownloader vừa được cập nhật lại trên trình duyệt. Vui lòng tải lại trang web (F5) để tiếp tục tải video!')
+        return
+      }
+
       let targetUrl = getVideoSource(video)
       let title = cleanTitle(document.title)
       let extName = 'MP4'
 
       // Nếu không lấy được src trực tiếp (do dùng blob: trên YouTube hoặc MSE player):
       if (!targetUrl) {
-        // Thử trích xuất luồng YouTube
         const yt = extractYouTubeStream()
         if (yt && yt.url) {
           targetUrl = yt.url
@@ -211,10 +431,20 @@
         }
       }
 
+      // Trích xuất TikTok stream trực tiếp nếu đang ở TikTok
+      if (!targetUrl) {
+        const tt = extractTikTokStream()
+        if (tt && tt.url) {
+          targetUrl = tt.url
+          title = tt.title || title
+          extName = tt.ext || 'MP4'
+        }
+      }
+
       // Nếu vẫn chưa có, hỏi background xem có sniff được luồng media mạng nào không
       if (!targetUrl) {
         const bgRes = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({ action: 'get_tab_best_media' }, resolve)
+          safeSendMessage({ action: 'get_tab_best_media' }, resolve)
         })
         if (bgRes && bgRes.media && bgRes.media.url) {
           targetUrl = bgRes.media.url
@@ -234,7 +464,7 @@
       const textSpan = bar.querySelector('.mydownloader-floating-text')
       if (textSpan) textSpan.textContent = 'Đang chuyển vào app...'
 
-      chrome.runtime.sendMessage(
+      safeSendMessage(
         {
           action: 'download_url',
           url: targetUrl,
@@ -255,17 +485,34 @@
     })
 
     // Cập nhật vị trí định kỳ
-    setInterval(updatePosition, 3000)
+    const timer = setInterval(() => {
+      if (!isContextValid()) {
+        clearInterval(timer)
+        cleanupOnInvalidated()
+        return
+      }
+      updatePosition()
+    }, 2500)
+    intervals.add(timer)
   }
 
   // Quét các thẻ video & audio hiện có
   function scanMedia() {
+    if (!isContextValid()) {
+      cleanupOnInvalidated()
+      return
+    }
+
     document.querySelectorAll('video').forEach((v) => {
       attachFloatingBar(v)
       let src = getVideoSource(v)
       if (!src) {
         const yt = extractYouTubeStream()
         if (yt && yt.url) src = yt.url
+      }
+      if (!src) {
+        const tt = extractTikTokStream()
+        if (tt && tt.url) src = tt.url
       }
       if (src && !/^blob:/i.test(src)) reportMedia(src, 'video')
     })
@@ -279,41 +526,68 @@
   // Chạy ngay và quan sát các thẻ video mới được tải thêm (như trên YouTube, TikTok, FB)
   scanMedia()
 
-  const observer = new MutationObserver(() => {
-    scanMedia()
+  // Hỗ trợ chuyển trang mượt trên YouTube (SPA navigation)
+  window.addEventListener('yt-navigate-finish', () => {
+    if (!isContextValid()) return
+    setTimeout(scanMedia, 500)
+    setTimeout(scanMedia, 1500)
   })
 
-  observer.observe(document.body || document.documentElement, {
-    childList: true,
-    subtree: true
-  })
+  let scanDebounceTimer = null
+  function debouncedScanMedia() {
+    if (scanDebounceTimer) return
+    scanDebounceTimer = setTimeout(() => {
+      scanDebounceTimer = null
+      scanMedia()
+    }, 250)
+  }
+
+  try {
+    observer = new MutationObserver(() => {
+      if (!isContextValid()) {
+        cleanupOnInvalidated()
+        return
+      }
+      debouncedScanMedia()
+    })
+
+    observer.observe(document.body || document.documentElement, {
+      childList: true,
+      subtree: true
+    })
+  } catch {}
 
   // Trả lời yêu cầu từ Extension Popup
-  chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
-    if (req.action === 'get_page_media') {
-      scanMedia()
-      const mediaList = []
-      document.querySelectorAll('video, audio').forEach((el) => {
-        let src = getVideoSource(el)
-        let title = cleanTitle(document.title)
-        if (!src && el.tagName.toLowerCase() === 'video') {
-          const yt = extractYouTubeStream()
-          if (yt && yt.url) {
-            src = yt.url
-            title = yt.title || title
-          }
-        }
-        if (src && !/^blob:/i.test(src)) {
-          mediaList.push({
-            url: src,
-            title,
-            type: el.tagName.toLowerCase(),
-            ext: getMediaExtension(src)
+  try {
+    if (isContextValid() && chrome.runtime?.onMessage) {
+      chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
+        if (!isContextValid()) return false
+        if (req.action === 'get_page_media') {
+          scanMedia()
+          const mediaList = []
+          document.querySelectorAll('video, audio').forEach((el) => {
+            let src = getVideoSource(el)
+            let title = cleanTitle(document.title)
+            if (!src && el.tagName.toLowerCase() === 'video') {
+              const yt = extractYouTubeStream()
+              if (yt && yt.url) {
+                src = yt.url
+                title = yt.title || title
+              }
+            }
+            if (src && !/^blob:/i.test(src)) {
+              mediaList.push({
+                url: src,
+                title,
+                type: el.tagName.toLowerCase(),
+                ext: getMediaExtension(src)
+              })
+            }
           })
+          sendResponse({ mediaList })
         }
+        return true
       })
-      sendResponse({ mediaList })
     }
-    return true
-  })
+  } catch {}
 })()
