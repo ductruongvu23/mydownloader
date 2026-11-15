@@ -1,0 +1,4 @@
+# Máy dev không có Windows SDK (target MSVC thiếu kernel32.lib) nên project dùng toolchain GNU
+# (rust-toolchain.toml) và link bằng gcc của MSYS2 UCRT64. Exe chỉ phụ thuộc DLL hệ thống.
+[target.x86_64-pc-windows-gnu]
+linker = "C:/msys64/ucrt64/bin/gcc.exe"

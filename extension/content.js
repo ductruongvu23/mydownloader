@@ -585,8 +585,9 @@
             }
           })
           sendResponse({ mediaList })
+          return true
         }
-        return true
+        return false
       })
     }
   } catch {}

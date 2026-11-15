@@ -1,4 +1,4 @@
-// extension/popup.js - MyDownloader Extension Controller v1.0.6
+// extension/popup.js - MyDownloader Extension Controller v2.0.0
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Elements
@@ -12,7 +12,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statusText = document.getElementById('statusText')
   const enabledInput = document.getElementById('enabledInput')
   const videoBarInput = document.getElementById('videoBarInput')
-  const portInput = document.getElementById('portInput')
   const checkBtn = document.getElementById('checkBtn')
   const quickUrl = document.getElementById('quickUrl')
   const quickAddBtn = document.getElementById('quickAddBtn')
@@ -47,8 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   })
 
   // Đọc thiết lập đã lưu
-  const stored = await chrome.storage.local.get(['port', 'enabled', 'token', 'videoBarEnabled'])
-  if (stored.port) portInput.value = stored.port
+  const stored = await chrome.storage.local.get(['enabled', 'videoBarEnabled'])
   if (stored.enabled !== undefined) enabledInput.checked = stored.enabled
   if (stored.videoBarEnabled !== undefined) videoBarInput.checked = stored.videoBarEnabled
 
@@ -61,100 +59,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     await chrome.storage.local.set({ videoBarEnabled: videoBarInput.checked })
   })
 
-  // Kiểm tra kết nối với MyDownloader Bridge
-  async function checkConnection(manual = false) {
-    let port = Number(portInput.value) || 6801
+  // Kiểm tra kết nối qua native host (không mở app nếu app đang tắt)
+  async function checkConnection() {
     statusCard.className = 'status-card disconnected'
-    statusText.textContent = `Đang kết nối cổng ${port}...`
-
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/ping`, {
-        signal: AbortSignal.timeout ? AbortSignal.timeout(800) : undefined
-      })
-      if (res.ok) {
-        const data = await res.json()
-        statusCard.className = 'status-card connected'
-        statusText.textContent = `🟢 Đã kết nối MyDownloader v${data.version || '1.0.1'}`
-        if (data.token) {
-          await chrome.storage.local.set({ token: data.token, port })
-        }
-        return true
-      }
-    } catch {}
-
-    // Quét nhanh các cổng lân cận 6801-6805
-    for (let p = 6801; p <= 6805; p++) {
-      if (p === port) continue
-      try {
-        const res = await fetch(`http://127.0.0.1:${p}/ping`, {
-          signal: AbortSignal.timeout ? AbortSignal.timeout(500) : undefined
-        })
-        if (res.ok) {
-          const data = await res.json()
-          portInput.value = p
-          await chrome.storage.local.set({ port: p, token: data.token || '' })
-          statusCard.className = 'status-card connected'
-          statusText.textContent = `🟢 Đã kết nối MyDownloader (cổng ${p})`
-          return true
-        }
-      } catch {}
+    statusText.textContent = 'Đang kiểm tra kết nối app...'
+    const res = await chrome.runtime.sendMessage({ action: 'ping_app' }).catch((e) => ({ ok: false, error: String(e) }))
+    if (res && res.ok && res.running) {
+      statusCard.className = 'status-card connected'
+      statusText.textContent = `🟢 Đã kết nối MyDownloader v${res.version || ''}`
+    } else if (res && res.ok) {
+      statusCard.className = 'status-card connected'
+      statusText.textContent = '🟡 MyDownloader đang tắt — sẽ tự mở khi có link tải'
+    } else {
+      statusCard.className = 'status-card disconnected'
+      statusText.textContent = '🔴 Chưa kết nối được app. Hãy mở MyDownloader một lần để app đăng ký với trình duyệt.'
+      statusText.title = (res && res.error) || ''
     }
-
-    statusCard.className = 'status-card disconnected'
-    statusText.textContent = '🔴 Không tìm thấy app (Hãy mở MyDownloader)'
-    return false
   }
 
-  // Chạy kiểm tra kết nối ngay
-  await checkConnection()
-
-  checkBtn.addEventListener('click', async () => {
-    const port = Number(portInput.value) || 6801
-    await chrome.storage.local.set({ port })
-    await checkConnection(true)
-  })
+  checkConnection()
+  checkBtn.addEventListener('click', checkConnection)
 
   // Gửi link nhanh
   quickAddBtn.addEventListener('click', async () => {
     const url = quickUrl.value.trim()
-    if (!url || !/^https?:\/\//i.test(url)) {
+    if (!url || !/^(https?:\/\/|magnet:)/i.test(url)) {
       quickMsg.style.color = '#f87171'
-      quickMsg.textContent = 'Vui lòng nhập đường link HTTP/HTTPS hợp lệ.'
+      quickMsg.textContent = 'Vui lòng nhập liên kết http(s) hoặc magnet hợp lệ.'
       return
     }
-
     quickMsg.style.color = '#94a3b8'
     quickMsg.textContent = 'Đang gửi...'
-
-    const port = Number(portInput.value) || 6801
-    const s = await chrome.storage.local.get(['token'])
-
-    try {
-      const headers = { 'Content-Type': 'application/json' }
-      if (s.token) headers['X-Token'] = s.token
-
-      const res = await fetch(`http://127.0.0.1:${port}/add`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          url,
-          userAgent: navigator.userAgent
-        })
-      })
-
-      if (res.ok) {
-        quickMsg.style.color = '#4ade80'
-        quickMsg.textContent = '✅ Đã thêm vào MyDownloader thành công!'
-        quickUrl.value = ''
-        setTimeout(() => { quickMsg.textContent = '' }, 3000)
-      } else {
-        const data = await res.json().catch(() => ({}))
-        quickMsg.style.color = '#f87171'
-        quickMsg.textContent = `Lỗi: ${data.error || 'App từ chối nhận link'}`
-      }
-    } catch (err) {
+    const res = await chrome.runtime.sendMessage({ action: 'download_url', url }).catch((e) => ({ success: false, error: String(e) }))
+    if (res && res.success) {
+      quickMsg.style.color = '#4ade80'
+      quickMsg.textContent = '✅ Đã gửi sang MyDownloader!'
+      quickUrl.value = ''
+      setTimeout(() => {
+        quickMsg.textContent = ''
+      }, 3000)
+    } else {
       quickMsg.style.color = '#f87171'
-      quickMsg.textContent = 'Không thể kết nối đến MyDownloader. Hãy chắc chắn app đang chạy.'
+      quickMsg.textContent = `Không gửi được: ${(res && res.error) || 'không kết nối được app'}`
     }
   })
 
@@ -211,15 +157,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       card.innerHTML = `
         <div class="media-header">
-          <span class="media-title" title="${item.url}">${title}</span>
-          <span class="media-badge">${ext}</span>
+          <span class="media-title"></span>
+          <span class="media-badge"></span>
         </div>
-        <div class="media-url" title="${item.url}">${displayUrl}</div>
+        <div class="media-url"></div>
         <div class="media-actions">
           <button class="media-btn btn-primary download-btn">⬇ Tải với MyDownloader</button>
           <button class="media-btn btn-secondary copy-btn">📋 Sao chép</button>
         </div>
       `
+      // Title/URL đến từ trang web nên gán bằng textContent, không chèn thẳng vào HTML
+      const titleEl = card.querySelector('.media-title')
+      titleEl.textContent = title
+      titleEl.title = item.url
+      card.querySelector('.media-badge').textContent = ext
+      const urlEl = card.querySelector('.media-url')
+      urlEl.textContent = displayUrl
+      urlEl.title = item.url
 
       const downloadBtn = card.querySelector('.download-btn')
       const copyBtn = card.querySelector('.copy-btn')

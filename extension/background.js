@@ -1,7 +1,22 @@
-// extension/background.js - MyDownloader Chrome Extension Service Worker v1.0.6
+// extension/background.js - MyDownloader Chrome Extension Service Worker v2.0.0
+// Nói chuyện với app qua native messaging (mydownloader-host.exe): app đang tắt thì host tự mở app.
 
 const handledDownloads = new Set()
 const tabMediaMap = new Map() // tabId -> Array<{ url, title, filename, ext, type }>
+
+// Service worker MV3 tự ngủ sau ~30s nên Map trong RAM bị mất: lưu thêm vào storage.session và nạp lại khi thức dậy
+const mediaReady = chrome.storage.session
+  .get(null)
+  .then((all) => {
+    for (const [k, v] of Object.entries(all)) {
+      if (k.startsWith('media_') && !tabMediaMap.has(Number(k.slice(6)))) tabMediaMap.set(Number(k.slice(6)), v)
+    }
+  })
+  .catch(() => {})
+
+function persistTabMedia(tabId) {
+  chrome.storage.session.set({ [`media_${tabId}`]: tabMediaMap.get(tabId) }).catch(() => {})
+}
 
 // Tạo menu chuột phải khi cài đặt hoặc khởi động extension
 chrome.runtime.onInstalled.addListener(() => {
@@ -69,13 +84,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     return
   }
 
-  const tabReferrer = tab?.url || ''
-  await sendToMyDownloader(targetUrl, tabReferrer, filename, true)
+  const res = await sendToApp(targetUrl, tab?.url || '', filename, false)
+  if (res.ok) notify('Đã gửi liên kết sang MyDownloader')
 })
 
 // Dọn dẹp danh sách media khi đóng tab
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabMediaMap.delete(tabId)
+  chrome.storage.session.remove(`media_${tabId}`).catch(() => {})
 })
 
 // Định dạng media và pattern video streaming cần sniff
@@ -96,8 +112,9 @@ function cleanMediaUrl(rawUrl) {
   return rawUrl
 }
 
-function addMediaToTab(tabId, url, type = 'video', title = '') {
+async function addMediaToTab(tabId, url, type = 'video', title = '') {
   if (!tabId || tabId <= 0 || !url || /^blob:/i.test(url) || /^data:/i.test(url)) return
+  await mediaReady
   if (!tabMediaMap.has(tabId)) {
     tabMediaMap.set(tabId, [])
   }
@@ -124,6 +141,7 @@ function addMediaToTab(tabId, url, type = 'video', title = '') {
   })
 
   if (list.length > 50) list.shift()
+  persistTabMedia(tabId)
 
   try {
     chrome.action.setBadgeText({ text: String(list.length), tabId })
@@ -166,8 +184,15 @@ if (chrome.webRequest) {
 // Lắng nghe thông điệp từ Content Script và Popup
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   if (req.action === 'download_url') {
-    sendToMyDownloader(req.url, req.referrer || '', req.filename || '', true)
-      .then((res) => sendResponse({ success: Boolean(res) }))
+    sendToApp(req.url, req.referrer || '', req.filename || '', false).then((res) => {
+      if (res.ok) notify('Đã gửi liên kết sang MyDownloader')
+      sendResponse({ success: res.ok, error: res.error })
+    })
+    return true
+  }
+
+  if (req.action === 'ping_app') {
+    nativeCall({ cmd: 'ping' }, 8000).then(sendResponse)
     return true
   }
 
@@ -182,215 +207,138 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
   if (req.action === 'get_tab_best_media') {
     const tabId = sender.tab ? sender.tab.id : req.tabId
-    const mediaList = tabMediaMap.get(tabId) || []
-    // Ưu tiên tệp video thực sự, loại trừ audio thuần nếu có video
-    const videos = mediaList.filter((m) => m.type === 'video')
-    const best =
-      videos.length > 0
-        ? videos[videos.length - 1]
-        : mediaList.length > 0
-          ? mediaList[mediaList.length - 1]
-          : null
-    sendResponse({ media: best, mediaList })
+    mediaReady.then(() => {
+      const mediaList = tabMediaMap.get(tabId) || []
+      // Ưu tiên tệp video thực sự, loại trừ audio thuần nếu có video
+      const videos = mediaList.filter((m) => m.type === 'video')
+      const best =
+        videos.length > 0
+          ? videos[videos.length - 1]
+          : mediaList.length > 0
+            ? mediaList[mediaList.length - 1]
+            : null
+      sendResponse({ media: best, mediaList })
+    })
     return true
   }
 
   if (req.action === 'get_tab_media') {
-    const tabId = req.tabId
-    const mediaList = tabMediaMap.get(tabId) || []
-    sendResponse({ mediaList })
+    mediaReady.then(() => sendResponse({ mediaList: tabMediaMap.get(req.tabId) || [] }))
     return true
   }
 
-  return true
+  return false
 })
 
-// Tìm kiếm cổng Bridge đang hoạt động (6801 - 6805)
-async function getActivePort() {
-  const settings = await chrome.storage.local.get(['port'])
-  const preferredPort = Number(settings.port) || 6801
+const NATIVE_HOST = 'com.mydownloader.host'
 
-  // Thử port hiện tại trước
-  try {
-    const res = await fetch(`http://127.0.0.1:${preferredPort}/ping`, {
-      signal: AbortSignal.timeout ? AbortSignal.timeout(600) : undefined
-    })
-    if (res.ok) return preferredPort
-  } catch {}
-
-  // Quét nhanh các cổng lân cận nếu port 6801 bị chiếm
-  for (let p = 6801; p <= 6805; p++) {
-    if (p === preferredPort) continue
+// Gửi 1 lệnh tới app qua native host. Cổng native giữ service worker sống trong lúc chờ
+// người dùng quyết định trên hộp thoại của app (app tự hết hạn sau 110 giây).
+function nativeCall(msg, timeoutMs = 120000) {
+  return new Promise((resolve) => {
+    let port
     try {
-      const res = await fetch(`http://127.0.0.1:${p}/ping`, {
-        signal: AbortSignal.timeout ? AbortSignal.timeout(500) : undefined
-      })
-      if (res.ok) {
-        await chrome.storage.local.set({ port: p })
-        return p
-      }
-    } catch {}
-  }
-  return preferredPort
-}
-
-// Gửi liên kết sang MyDownloader
-async function sendToMyDownloader(url, referrer = '', filename = '', showNotification = false, downloadId = null) {
-  const settings = await chrome.storage.local.get(['token', 'enabled'])
-  if (settings.enabled === false) return null
-
-  const port = await getActivePort()
-
-  try {
-    let cookieHeader = ''
-    try {
-      let cookies = await chrome.cookies.getAll({ url })
-      // Nếu là CDN (như tiktokcdn, byteoversea, googlevideo, fbcdn) thì cookie thường nằm ở trang gốc (referrer)
-      if ((!cookies || cookies.length === 0) && referrer && /^https?:\/\//i.test(referrer)) {
-        try {
-          cookies = await chrome.cookies.getAll({ url: referrer })
-        } catch {}
-      }
-      if (cookies && cookies.length > 0) {
-        cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ')
-      }
+      port = chrome.runtime.connectNative(NATIVE_HOST)
     } catch (e) {
-      console.warn('[MyDownloader] Không thể lấy cookies:', e)
-    }
-
-    const payload = {
-      url,
-      referrer: referrer || '',
-      userAgent: navigator.userAgent,
-      cookie: cookieHeader,
-      filename: filename || '',
-      downloadId: downloadId || null
-    }
-
-    const headers = { 'Content-Type': 'application/json' }
-    if (settings.token) {
-      headers['X-Token'] = settings.token
-    }
-
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 3500)
-
-    const res = await fetch(`http://127.0.0.1:${port}/add`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    })
-    clearTimeout(timer)
-
-    if (res.ok) {
-      const data = await res.json().catch(() => ({}))
-      if (showNotification && chrome.notifications) {
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icon.png',
-          title: 'MyDownloader',
-          message: 'Đã gửi liên kết tải vào MyDownloader thành công!'
-        })
-      }
-      return { success: true, port, data }
-    }
-  } catch (err) {
-    console.debug('[MyDownloader Extension] Không kết nối được MyDownloader:', err.message)
-  }
-  return null
-}
-
-// Chờ phản hồi quyết định của người dùng trên MyDownloader (Started / Cancelled)
-async function waitForBridgeDecision(port, downloadId, timeoutMs = 35000) {
-  const startTime = Date.now()
-
-  while (Date.now() - startTime < timeoutMs) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/bridge/decision?id=${encodeURIComponent(downloadId)}`, {
-        signal: AbortSignal.timeout ? AbortSignal.timeout(1000) : undefined
-      })
-      if (res.ok) {
-        const body = await res.json()
-        if (body.action === 'started') return 'started'
-        if (body.action === 'cancelled') return 'cancelled'
-      }
-    } catch {}
-
-    // Nghỉ 400ms trước khi kiểm tra lại
-    await new Promise((resolve) => setTimeout(resolve, 400))
-  }
-
-  // Quá thời gian chờ (hết 35s mà người dùng chưa bấm)
-  return 'timeout'
-}
-
-// Tự động bắt lượt tải từ trình duyệt với cơ chế Hoãn Hủy (Pause -> Confirm -> Cancel / Resume)
-chrome.downloads.onCreated.addListener(async (item) => {
-  const url = item.finalUrl || item.url
-  if (!url || !/^https?:/i.test(url)) return
-
-  // Tránh xử lý lặp lại cùng một download item
-  if (handledDownloads.has(item.id)) return
-  handledDownloads.add(item.id)
-  setTimeout(() => handledDownloads.delete(item.id), 20000)
-
-  // Bỏ qua nếu người dùng chủ động tắt tính năng trong popup
-  const settings = await chrome.storage.local.get(['enabled'])
-  if (settings.enabled === false) return
-
-  // Bỏ qua các file đuôi .crx (cài đặt extension trình duyệt)
-  if (/\.crx(\?.*)?$/i.test(url)) return
-
-  console.log(`[MyDownloader Extension] Bắt lượt tải mới (ID: ${item.id}):`, url)
-
-  // BƯỚC 1: Tạm dừng lượt tải trên Chrome để giữ chỗ, không để Chrome tải ngốn mạng và rác đĩa
-  try {
-    await chrome.downloads.pause(item.id)
-  } catch (err) {
-    console.debug('[MyDownloader Extension] Không thể tạm dừng download:', err.message)
-  }
-
-  const filename = item.filename ? item.filename.split(/[\\/]/).pop() : ''
-  const referrer = item.referrer || ''
-
-  // BƯỚC 2: Gửi link và downloadId sang MyDownloader
-  const sendResult = await sendToMyDownloader(url, referrer, filename, false, item.id)
-
-  if (sendResult && sendResult.success) {
-    // Nếu app đã tự động tải ngay (autoDownloadFromExtension: true)
-    if (sendResult.data && sendResult.data.id) {
-      try {
-        await chrome.downloads.cancel(item.id)
-        await chrome.downloads.erase({ id: item.id })
-      } catch {}
+      resolve({ ok: false, error: String(e && e.message ? e.message : e) })
       return
     }
-
-    // BƯỚC 3: Cửa sổ MyDownloader đang hiện menu hỏi xác nhận (AddTaskModal).
-    // Đợi người dùng đưa ra quyết định:
-    const decision = await waitForBridgeDecision(sendResult.port, item.id, 35000)
-
-    if (decision === 'started') {
-      // Người dùng bấm "Bắt đầu tải" -> Bây giờ mới hủy download trên Chrome!
+    let finished = false
+    const done = (res) => {
+      if (finished) return
+      finished = true
+      clearTimeout(timer)
       try {
-        console.log(`[MyDownloader Extension] Người dùng xác nhận tải. Đang hủy download Chrome (ID: ${item.id})...`)
-        await chrome.downloads.cancel(item.id)
-        await chrome.downloads.erase({ id: item.id })
-      } catch (e) {
-        console.debug('[MyDownloader Extension] Lỗi khi hủy download Chrome:', e)
-      }
-    } else {
-      // Người dùng bấm "Hủy" hoặc đóng popup hoặc hết hạn 35s -> Tiếp tục tải trên Chrome bình thường!
-      try {
-        console.log(`[MyDownloader Extension] Quyết định là '${decision}'. Đang cho Chrome tiếp tục tải bình thường...`)
-        await chrome.downloads.resume(item.id)
-      } catch (e) {
-        console.debug('[MyDownloader Extension] Lỗi khi tiếp tục download Chrome:', e)
-      }
+        port.disconnect()
+      } catch {}
+      resolve(res)
     }
+    const timer = setTimeout(() => done({ ok: false, error: 'timeout' }), timeoutMs)
+    port.onMessage.addListener((res) => done(res || { ok: false, error: 'empty' }))
+    port.onDisconnect.addListener(() => done({ ok: false, error: chrome.runtime.lastError?.message || 'disconnected' }))
+    port.postMessage(msg)
+  })
+}
+
+function notify(message) {
+  try {
+    chrome.notifications.create({ type: 'basic', iconUrl: 'icon.png', title: 'MyDownloader', message })
+  } catch {}
+}
+
+// Báo một lần khi chưa kết nối được app (chưa cài / chưa mở app lần nào để đăng ký với trình duyệt)
+let warnedMissingApp = false
+function warnMissingApp(error) {
+  chrome.action.setBadgeText({ text: '!' }).catch(() => {})
+  chrome.action.setBadgeBackgroundColor({ color: '#ef4444' }).catch(() => {})
+  if (warnedMissingApp) return
+  warnedMissingApp = true
+  console.warn('[MyDownloader] Không kết nối được app:', error)
+  notify('Không kết nối được MyDownloader. Hãy mở MyDownloader một lần để app đăng ký với trình duyệt.')
+}
+
+async function cookiesFor(url, referrer) {
+  try {
+    let cookies = await chrome.cookies.getAll({ url })
+    // CDN (tiktokcdn, googlevideo, fbcdn...) thường không có cookie riêng: lấy của trang gốc
+    if ((!cookies || cookies.length === 0) && /^https?:\/\//i.test(referrer)) {
+      cookies = await chrome.cookies.getAll({ url: referrer })
+    }
+    return (cookies || []).map((c) => `${c.name}=${c.value}`).join('; ')
+  } catch {
+    return ''
+  }
+}
+
+// wait = true: download của trình duyệt đang tạm dừng, chờ người dùng chọn trên app
+async function sendToApp(url, referrer = '', filename = '', wait = false) {
+  const { enabled } = await chrome.storage.local.get('enabled')
+  if (enabled === false) return { ok: false, error: 'disabled' }
+  const res = await nativeCall({
+    cmd: 'add',
+    url,
+    referrer,
+    cookie: await cookiesFor(url, referrer),
+    userAgent: navigator.userAgent,
+    filename,
+    wait
+  })
+  if (res.ok) {
+    chrome.action.setBadgeText({ text: '' }).catch(() => {})
   } else {
-    // Nếu không kết nối được MyDownloader (app chưa bật) -> Cho Chrome tiếp tục tải bình thường
+    warnMissingApp(res.error)
+  }
+  return res
+}
+
+// Bắt lượt tải của trình duyệt: tạm dừng -> hỏi app -> hủy bản của trình duyệt hoặc cho tải tiếp
+chrome.downloads.onCreated.addListener(async (item) => {
+  const url = item.finalUrl || item.url
+  if (!url || !/^https?:/i.test(url) || item.state === 'complete') return
+  if (handledDownloads.has(item.id)) return
+  handledDownloads.add(item.id)
+  setTimeout(() => handledDownloads.delete(item.id), 180000)
+
+  const { enabled } = await chrome.storage.local.get('enabled')
+  if (enabled === false) return
+  // Tệp cài extension (.crx) phải để trình duyệt tự xử lý
+  if (/\.crx(\?.*)?$/i.test(url)) return
+
+  try {
+    await chrome.downloads.pause(item.id)
+  } catch {}
+
+  const filename = item.filename ? item.filename.split(/[\/]/).pop() : ''
+  const res = await sendToApp(url, item.referrer || '', filename, true)
+
+  // started: app tải; duplicate: app đang tải link này rồi -> trình duyệt bỏ bản của nó
+  if (res.ok && (res.action === 'started' || res.action === 'duplicate')) {
+    try {
+      await chrome.downloads.cancel(item.id)
+      await chrome.downloads.erase({ id: item.id })
+    } catch {}
+  } else {
+    // Người dùng bấm Hủy, hết giờ, hoặc không có app -> trình duyệt tải tiếp như bình thường
     try {
       await chrome.downloads.resume(item.id)
     } catch {}

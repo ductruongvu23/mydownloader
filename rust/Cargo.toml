@@ -1,0 +1,45 @@
+[package]
+name = "mydownloader"
+version = "2.0.0"
+edition = "2021"
+description = "Trình quản lý tải xuống đa luồng cho Windows"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "MyDownloader"
+path = "src/main.rs"
+
+# Native messaging host: Chrome/Edge khởi chạy tiến trình này để extension nói chuyện với app
+[[bin]]
+name = "mydownloader-host"
+path = "src/bin/host.rs"
+
+[dependencies]
+eframe = { version = "0.32", default-features = false, features = ["accesskit", "default_fonts", "glow"] }
+tray-icon = "0.21"
+rfd = "0.15"
+raw-window-handle = "0.6"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
+tokio-util = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["native-tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+percent-encoding = "2"
+winreg = "0.55"
+tauri-winrt-notification = "0.7"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
