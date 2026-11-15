@@ -6,71 +6,70 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-3b82f6?style=for-the-badge&logo=open-source-initiative&logoColor=white)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-egui_0.32-B7410E?style=for-the-badge&logo=rust&logoColor=white)](rust/)
 
-**Trình quản lý tải xuống đa luồng cho Windows, bắt link và video ngay từ trình duyệt.**  
-*A lightweight multi-threaded download manager for Windows, with a browser extension that catches downloads and media.*
+**A lightweight multi-threaded download manager for Windows, with a browser extension that catches downloads and media.**
 
 </div>
 
 ---
 
-## 🦀 MyDownloader 2.0 — viết lại bằng Rust
+## 🦀 MyDownloader 2.0 — rewritten in Rust
 
-Bản 2.0 thay Electron bằng Rust + egui: **1 tiến trình, ~94 MB RAM** (bản Electron 1.x: 4 tiến trình, ~284 MB, đo trên cùng máy).
+Version 2.0 replaces Electron with Rust + egui: **1 process, ~94 MB RAM** (Electron 1.x: 4 processes, ~284 MB, measured on the same machine).
 
-- **Extension nói chuyện với app qua native messaging** (`mydownloader-host.exe`) thay cho HTTP cổng 6801: trang web không gọi vào app được nữa, không còn quét cổng/token.
-- **App đang tắt vẫn bắt được link**: trình duyệt chạy host, host tự mở app ẩn ở khay rồi chuyển link sang.
-- **Bấm ✕ thì thu xuống khay và vẫn tải tiếp**; thoát hẳn từ menu khay. Tắt ngang (crash, tắt máy) thì lần mở sau tải tiếp từ chỗ dừng.
-- Dùng chung dữ liệu với bản 1.x (`%APPDATA%\mydownloader`: `settings.json`, `tasks.json`), log ở `mydownloader.log` cùng thư mục.
-
----
-
-## 🌟 Tính Năng
-
-### 🚀 Động cơ tải
-- Thăm dò Range trước khi tải; máy chủ không hỗ trợ Range thì tự chuyển sang tải đơn luồng.
-- Số luồng thích ứng theo dung lượng tệp (tối đa 1–32 luồng mỗi tệp, chỉnh trong Cài đặt); luồng xong sớm chia việc với luồng chậm.
-- Lỗi mạng chỉ thử lại đoạn bị hỏng (backoff, tối đa 8 lần); 30 giây không có dữ liệu thì coi là treo và kết nối lại.
-- Tiến độ lưu ở `<tệp>.part.json`: tạm dừng hay tắt app thì lần sau tải tiếp từ chỗ dừng.
-- Hàng đợi chạy 1–20 tác vụ cùng lúc, giới hạn tốc độ chung cho mọi tác vụ.
-- Tải hàng loạt theo mẫu, ví dụ `http://x/img[001-100].jpg`.
-- Torrent / Magnet / FTP qua `aria2c.exe` (không đi kèm: đặt cạnh `MyDownloader.exe` hoặc có trong `PATH`).
-
-### 🎬 Tiện ích trình duyệt (`extension/`, Manifest V3)
-- Bắt download của trình duyệt: tạm dừng bản của trình duyệt, hỏi trong app, chỉ hủy khi bạn bấm tải bằng MyDownloader.
-- Bắt luồng video thực (`.mp4`, `.webm`, `.m3u8`, `googlevideo.com`...) qua `webRequest`; bóc stream MP4 của YouTube và TikTok.
-- Nút tải nổi trên video đang phát; menu chuột phải tải link, ảnh, video/âm thanh và link bôi đen.
-- Gửi kèm Referer, Cookie, User-Agent của trang gốc để CDN không chặn (403).
-
-### 🎨 Giao diện
-- Giao diện tối / sáng / theo hệ thống, tiếng Việt / English.
-- Lọc theo trạng thái, tìm kiếm, chọn nhiều tác vụ để tạm dừng / tiếp tục / xóa; dán link (Ctrl+V) để thêm nhanh.
-- Thông báo Windows khi tải xong hoặc lỗi; tùy chọn khởi động cùng Windows (ẩn ở khay).
+- **The extension talks to the app over native messaging** (`mydownloader-host.exe`) instead of HTTP on port 6801: web pages can no longer call into the app, and there is no port scanning or token anymore.
+- **Links are caught even when the app is closed**: the browser starts the host, which launches the app hidden in the tray and hands the link over.
+- **Clicking ✕ minimizes to the tray and downloads keep running**; quit from the tray menu. After a hard stop (crash, shutdown), downloads resume where they left off on the next start.
+- Shares its data with 1.x (`%APPDATA%\mydownloader`: `settings.json`, `tasks.json`); the log is `mydownloader.log` in the same folder.
 
 ---
 
-## 📥 Cài Đặt
+## 🌟 Features
 
-Tải `MyDownloader-<version>-win-x64.zip` ở mục [Releases](https://github.com/ductruongvu23/mydownloader/releases), giải nén vào một thư mục cố định rồi chạy `MyDownloader.exe` một lần: app tự đăng ký native host với Chrome / Edge / Brave / Cốc Cốc / Chromium (chỉ ghi vào `HKCU`, không cần quyền admin).
+### 🚀 Download engine
+- Probes Range support before downloading and falls back to a single connection when the server doesn't support it.
+- Adaptive connection count based on file size (1–32 connections per file, set in Settings); connections that finish early take over work from slow ones.
+- Network errors retry only the failed segment (backoff, up to 8 times); 30 seconds without data counts as a stall and reconnects.
+- Progress is saved to `<file>.part.json`, so after pausing or closing the app the download resumes where it stopped.
+- The queue runs 1–20 downloads at once, with a global speed limit shared by all of them.
+- Batch downloads from a pattern, e.g. `http://x/img[001-100].jpg`.
+- Torrent / Magnet / FTP through `aria2c.exe` (not bundled: put it next to `MyDownloader.exe` or on `PATH`).
 
-### 🔌 Cài extension
+### 🎬 Browser extension (`extension/`, Manifest V3)
+- Catches browser downloads: pauses the browser's copy, asks in the app, and cancels it only when you choose to download with MyDownloader.
+- Captures real media streams (`.mp4`, `.webm`, `.m3u8`, `googlevideo.com`...) via `webRequest`; extracts MP4 streams from YouTube and TikTok.
+- Floating download button on playing videos; context menu to download links, images, video/audio and selected links.
+- Sends the source page's Referer, Cookie and User-Agent so CDNs don't block the download (403).
 
-1. Trong MyDownloader: **Cài đặt** → **📂 Mở thư mục Extension** (thư mục `extension` nằm cạnh `MyDownloader.exe`).
-2. Mở `chrome://extensions` (`edge://extensions`, `coccoc://extensions`), bật **Chế độ dành cho nhà phát triển**.
-3. Bấm **Tải tiện ích đã giải nén** và chọn thư mục ở bước 1.
-
-Extension có `key` cố định trong `manifest.json` nên ID luôn là `pialejfhnnjfpkmlgkogbhphaeomhafe`, dù đặt ở thư mục nào. Đã cài extension của bản 1.x thì gỡ ra rồi cài lại theo các bước trên.
-
-### 🔄 Cập nhật
-
-**Cài đặt** → **Kiểm tra cập nhật** → **Cập nhật ngay**: app tải gói zip của bản mới, thay các tệp trong thư mục cài rồi tự khởi động lại. Sau đó bấm ⟳ ở thẻ extension trong `chrome://extensions` để trình duyệt nạp extension mới. Cập nhật tay: thoát MyDownloader (chuột phải icon khay → **Thoát**), giải nén bản mới đè lên thư mục cũ rồi mở lại.
-
-Bản 1.x (Electron) không tự cập nhật lên 2.x được: tải zip về như trên, cài đặt và danh sách tải được giữ nguyên; gỡ bản 1.x trong Settings → Apps nếu muốn.
+### 🎨 Interface
+- Dark / light / system theme, Vietnamese / English.
+- Filter by status, search, select several downloads to pause / resume / remove; paste a link (Ctrl+V) to add it quickly.
+- Windows notifications when a download finishes or fails; optional start with Windows (hidden in the tray).
 
 ---
 
-## 🛠️ Phát Triển
+## 📥 Installation
 
-Cần [Rust](https://rustup.rs/) và [MSYS2](https://www.msys2.org/) UCRT64 có `gcc` (`pacman -S mingw-w64-ucrt-x86_64-gcc`). Máy dev không có Windows SDK nên project dùng toolchain GNU, chọn tự động qua `rust/rust-toolchain.toml`; linker `C:/msys64/ucrt64/bin/gcc.exe` khai báo trong `rust/.cargo/config.toml`. Chạy `cargo` trong thư mục `rust/` để hai file này có hiệu lực.
+Download `MyDownloader-<version>-win-x64.zip` from [Releases](https://github.com/ductruongvu23/mydownloader/releases), extract it to a permanent folder and run `MyDownloader.exe` once: the app registers its native messaging host with Chrome / Edge / Brave / Cốc Cốc / Chromium (it only writes to `HKCU`, so no admin rights are needed).
+
+### 🔌 Installing the extension
+
+1. In MyDownloader: **Settings** → **📂 Open extension folder** (the `extension` folder next to `MyDownloader.exe`).
+2. Open `chrome://extensions` (`edge://extensions`, `coccoc://extensions`) and turn on **Developer mode**.
+3. Click **Load unpacked** and select the folder from step 1.
+
+The extension has a fixed `key` in `manifest.json`, so its ID is always `pialejfhnnjfpkmlgkogbhphaeomhafe`, wherever the folder lives. If you installed the 1.x extension, remove it and install again with the steps above.
+
+### 🔄 Updating
+
+**Settings** → **Check for updates** → **Update now**: the app downloads the new zip, replaces the files in its folder and restarts itself. Then click ⟳ on the extension card in `chrome://extensions` so the browser loads the new extension. To update by hand: quit MyDownloader (right-click the tray icon → **Exit**), extract the new version over the old folder and start it again.
+
+Version 1.x (Electron) can't update itself to 2.x: download the zip as above; your settings and download list are kept. Uninstall 1.x from Settings → Apps if you like.
+
+---
+
+## 🛠️ Development
+
+Requires [Rust](https://rustup.rs/) and [MSYS2](https://www.msys2.org/) UCRT64 with `gcc` (`pacman -S mingw-w64-ucrt-x86_64-gcc`). The dev machine has no Windows SDK, so the project uses the GNU toolchain, selected automatically by `rust/rust-toolchain.toml`; the linker `C:/msys64/ucrt64/bin/gcc.exe` is set in `rust/.cargo/config.toml`. Run `cargo` inside `rust/` so both files take effect.
 
 ```bash
 cd rust
@@ -78,56 +77,56 @@ cargo test --release
 cargo build --release
 ```
 
-Chạy `rust/target/release/MyDownloader.exe` một lần để đăng ký native host; khi chạy từ `target/`, app tự tìm thư mục `extension/` ở gốc repo.
+Run `rust/target/release/MyDownloader.exe` once to register the native host; when started from `target/`, the app finds the `extension/` folder at the repo root.
 
-### 📦 Đóng gói
+### 📦 Packaging
 
 ```bash
 powershell -ExecutionPolicy Bypass -File rust\package.ps1
 ```
 
-Build release rồi tạo `rust/dist/MyDownloader/` (`MyDownloader.exe`, `mydownloader-host.exe`, `extension/`) và `rust/dist/MyDownloader-<version>-win-x64.zip`. Phiên bản lấy từ `rust/Cargo.toml` và được đồng bộ sang `extension/manifest.json`. Icon `resources/icon.ico` được nhúng vào cả hai exe lúc build (`rust/build.rs`, dùng `windres` của MSYS2). Nếu báo *Permission denied* thì thoát MyDownloader đang chạy từ `rust/target/release` rồi chạy lại.
+Builds the release, then creates `rust/dist/MyDownloader/` (`MyDownloader.exe`, `mydownloader-host.exe`, `extension/`) and `rust/dist/MyDownloader-<version>-win-x64.zip`. The version comes from `rust/Cargo.toml` and is synced to `extension/manifest.json`. `resources/icon.ico` is embedded into both executables at build time (`rust/build.rs`, using MSYS2's `windres`). If you get *Permission denied*, quit the MyDownloader running from `rust/target/release` and run it again.
 
-### 🚢 Phát hành lên GitHub Releases
+### 🚢 Publishing to GitHub Releases
 
 ```bash
 powershell -ExecutionPolicy Bypass -File rust\package.ps1 -Release
 ```
 
-Đóng gói rồi tạo Release `v<version>` kèm file zip, ghi chú lấy từ `rust/release-notes.md` (cần [GitHub CLI](https://cli.github.com/) đã `gh auth login`). Script chỉ phát hành khi `rust/`, `extension/`, `resources/` không còn thay đổi chưa commit và commit hiện tại đã push; tag được tạo trên GitHub tại đúng commit đó. Chạy lại cùng phiên bản thì chỉ thay file zip. Bộ tự cập nhật trong app (`rust/src/update.rs`) đọc `releases/latest`: so `tag_name` với phiên bản đang chạy rồi tải asset `MyDownloader-…-win….zip`, nên đừng đổi dạng tag hay tên zip. Mỗi bản mới chỉ cần tăng `version` trong `rust/Cargo.toml`, commit, push rồi chạy lệnh trên.
+Packages, then creates Release `v<version>` with the zip attached and the notes from `rust/release-notes.md` (requires the [GitHub CLI](https://cli.github.com/), logged in with `gh auth login`). The script only publishes when `rust/`, `extension/` and `resources/` have no uncommitted changes and the current commit is pushed; the tag is created on GitHub at that exact commit. Running it again for the same version only replaces the zip. The in-app updater (`rust/src/update.rs`) reads `releases/latest`: it compares `tag_name` with the running version and downloads the `MyDownloader-…-win….zip` asset, so don't change the tag format or the zip name. For each new version, bump `version` in `rust/Cargo.toml`, commit, push and run the command above.
 
 ---
 
-## 🏗️ Cấu Trúc Dự Án
+## 🏗️ Project Structure
 
 ```
 mydownloader/
-├── rust/                     # App Rust (egui, tokio, reqwest)
+├── rust/                     # Rust app (egui, tokio, reqwest)
 │   ├── src/
-│   │   ├── main.rs           # Khởi động: 1 phiên bản duy nhất, đăng ký native host, khởi động cùng Windows
-│   │   ├── app.rs            # Lõi dùng chung giữa giao diện và IPC, icon khay
-│   │   ├── ui.rs             # Giao diện egui
-│   │   ├── update.rs         # Tự cập nhật từ GitHub Releases
-│   │   ├── ipc.rs            # Named pipe nhận lệnh từ native host
-│   │   ├── native.rs         # Đăng ký native messaging host (HKCU), tìm thư mục extension
+│   │   ├── main.rs           # Startup: single instance, native host registration, start with Windows
+│   │   ├── app.rs            # Core shared by the UI and IPC, tray icon
+│   │   ├── ui.rs             # egui interface
+│   │   ├── update.rs         # Self-update from GitHub Releases
+│   │   ├── ipc.rs            # Named pipe receiving commands from the native host
+│   │   ├── native.rs         # Native messaging host registration (HKCU), extension folder lookup
 │   │   ├── settings.rs       # settings.json
-│   │   ├── util.rs           # Thư mục dữ liệu, log, Win32
-│   │   ├── engine/           # http.rs (tải đa luồng), mod.rs (hàng đợi), aria2.rs, batch.rs
+│   │   ├── util.rs           # Data folder, logging, Win32 helpers
+│   │   ├── engine/           # http.rs (multi-connection downloads), mod.rs (queue), aria2.rs, batch.rs
 │   │   └── bin/host.rs       # mydownloader-host.exe: native messaging host
-│   ├── build.rs              # Nhúng icon vào exe
-│   ├── package.ps1           # Đóng gói zip / phát hành GitHub Releases
-│   └── release-notes.md      # Ghi chú đăng kèm mỗi Release
-├── extension/                # Tiện ích Chrome/Edge (Manifest V3)
-│   ├── manifest.json         # key cố định -> ID pialejfhnnjfpkmlgkogbhphaeomhafe
-│   ├── background.js         # Bắt download, media sniffer, gọi native host
-│   ├── content.js            # Nút tải nổi, bóc stream YouTube / TikTok
-│   └── popup.html / popup.js # Trạng thái kết nối app, gửi link nhanh
+│   ├── build.rs              # Embeds the icon into the executables
+│   ├── package.ps1           # Packaging / publishing to GitHub Releases
+│   └── release-notes.md      # Notes published with each Release
+├── extension/                # Chrome/Edge extension (Manifest V3)
+│   ├── manifest.json         # fixed key -> ID pialejfhnnjfpkmlgkogbhphaeomhafe
+│   ├── background.js         # Download capture, media sniffer, native host calls
+│   ├── content.js            # Floating download button, YouTube / TikTok stream extraction
+│   └── popup.html / popup.js # App connection status, quick link sending
 ├── resources/                # icon.ico, icon.png, tray.png
-└── scripts/                  # gen-icons.cjs, setup-ltsc (môi trường Windows LTSC)
+└── scripts/                  # gen-icons.cjs, setup-ltsc (Windows LTSC environment)
 ```
 
 ---
 
-## 📄 Giấy Phép (License)
+## 📄 License
 
-Dự án được phân phối dưới giấy phép mã nguồn mở **MIT License**. Xem chi tiết tại tệp [LICENSE](LICENSE).
+Distributed under the **MIT License**. See [LICENSE](LICENSE).

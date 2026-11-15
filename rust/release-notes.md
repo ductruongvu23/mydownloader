@@ -1,13 +1,13 @@
-## Cài đặt
+## Installation
 
-1. Tải tệp `MyDownloader-…-win-x64.zip` bên dưới, giải nén vào một thư mục cố định (ví dụ `C:\Users\<tên>\MyDownloader`). Không cần quyền admin.
-2. Chạy `MyDownloader.exe` một lần: app tự đăng ký với Chrome / Edge / Brave / Cốc Cốc.
-3. Mở `chrome://extensions` (hoặc `edge://extensions`, `coccoc://extensions`), bật **Chế độ dành cho nhà phát triển**, bấm **Tải tiện ích đã giải nén** và chọn thư mục `extension` nằm cạnh `MyDownloader.exe`.
+1. Download `MyDownloader-…-win-x64.zip` below and extract it to a permanent folder (e.g. `C:\Users\<you>\MyDownloader`). No admin rights needed.
+2. Run `MyDownloader.exe` once: the app registers itself with Chrome / Edge / Brave / Cốc Cốc.
+3. Open `chrome://extensions` (or `edge://extensions`, `coccoc://extensions`), turn on **Developer mode**, click **Load unpacked** and select the `extension` folder next to `MyDownloader.exe`.
 
-Torrent / Magnet / FTP cần `aria2c.exe` đặt cạnh `MyDownloader.exe` hoặc có trong `PATH`.
+Torrent / Magnet / FTP need `aria2c.exe` next to `MyDownloader.exe` or on `PATH`.
 
-## Cập nhật
+## Updating
 
-Từ bản 2.x: **Cài đặt → Kiểm tra cập nhật → Cập nhật ngay** (app tự tải, thay tệp và khởi động lại), rồi bấm ⟳ (tải lại) ở thẻ extension trong `chrome://extensions`. Cập nhật tay: thoát MyDownloader (chuột phải icon ở khay → Thoát), giải nén bản mới đè lên thư mục cũ rồi mở lại.
+From 2.x: **Settings → Check for updates → Update now** (the app downloads the update, replaces its files and restarts), then click ⟳ (reload) on the extension card in `chrome://extensions`. To update by hand: quit MyDownloader (right-click the tray icon → Exit), extract the new version over the old folder and start it again.
 
-**Đang dùng bản 1.x (Electron):** bản 1.x không tự cập nhật lên 2.x được, hãy tải zip ở trên. Cài đặt và danh sách tải được giữ nguyên (`%APPDATA%\mydownloader`). Gỡ bản 1.x trong Settings → Apps, gỡ extension cũ rồi cài lại từ thư mục `extension` mới.
+**Coming from 1.x (Electron):** 1.x can't update itself to 2.x, so download the zip above. Your settings and download list are kept (`%APPDATA%\mydownloader`). Uninstall 1.x from Settings → Apps, remove the old extension and install it again from the new `extension` folder.
