@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MyDownloader Integration",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Bắt link tải & video đang phát, chuyển sang MyDownloader (tự mở app khi cần)",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxTc2niIJ2LPGukGfhgyowvUnpmAXdUA4KxVSwCf2nZXCr3mfR4ZB/5oc9wZqRNJ8r9EThgkHsLWuT51hykiBhWkNepnaS5Hsxdlfs4RKKT5oFOElZljVEnT/E83/QHlok2sL2Wxsu2cyXcPBpKuY4iGQwhMLv8fyUXYS7CyNvLIGiSH1yyxO8/GZjx4PjnXDZPFrdKxpnD+byz5cCNPj4jJxbL0rF5qn7s9ctvCOS03fzdLxBwAAdHuCeuiIdIvw40HfaZhvo4xlWletUQbRs+fpk8GJ4Ctow5I3am3i1pnMnkEfeZUuAQJ7b9Hg71/jPG9LD2+bkpJMX6Q+bj5jDwIDAQAB",
   "icons": {
