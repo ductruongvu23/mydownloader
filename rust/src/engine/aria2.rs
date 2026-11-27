@@ -143,6 +143,8 @@ impl Aria2 {
         let resp: Value = client
             .post(format!("http://127.0.0.1:{port}/jsonrpc"))
             .json(&body)
+            // aria2 có thể treo (ổ đĩa nghẽn): không chờ mãi
+            .timeout(Duration::from_secs(10))
             .send()
             .await
             .map_err(|e| DlError::retry(format!("aria2 không phản hồi: {e}")))?
@@ -175,13 +177,37 @@ impl Aria2 {
             self.call(client, "aria2.addUri", vec![json!([p.url.trim()]), opts]).await?
         };
         let mut gid = gid.as_str().unwrap_or_default().to_string();
+        let result = self.watch(client, p, progress, cancel, &on_info, &mut gid).await;
+        // Tạm dừng / xóa / lỗi: phải chắc chắn aria2 thôi tải, nếu không nó tải ngầm và chiếm băng thông
+        if !matches!(result, Ok(Outcome::Completed { .. })) {
+            self.stop(client, &gid).await;
+        }
+        result
+    }
+
+    /// Gỡ tác vụ khỏi aria2 (giữ tệp + .aria2 để lần sau tải tiếp); aria2 không trả lời thì tắt hẳn tiến trình.
+    async fn stop(&self, client: &Client, gid: &str) {
+        if self.call(client, "aria2.forceRemove", vec![json!(gid)]).await.is_err() {
+            if let Some(mut rpc) = self.rpc.lock().await.take() {
+                crate::util::log("aria2 không phản hồi khi dừng tác vụ: tắt tiến trình aria2");
+                let _ = rpc.child.kill();
+            }
+        }
+    }
+
+    async fn watch(
+        &self,
+        client: &Client,
+        p: &Params,
+        progress: &Progress,
+        cancel: &CancellationToken,
+        on_info: &impl Fn(Info),
+        gid: &mut String,
+    ) -> Result<Outcome, DlError> {
+        let mut last_info = (String::new(), 0u64);
         loop {
             tokio::select! {
-                _ = cancel.cancelled() => {
-                    // remove giữ lại tệp + .aria2 nên lần sau addUri sẽ tải tiếp
-                    let _ = self.call(client, "aria2.remove", vec![json!(gid)]).await;
-                    return Ok(Outcome::Cancelled);
-                }
+                _ = cancel.cancelled() => return Ok(Outcome::Cancelled),
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {}
             }
             let s = self.call(client, "aria2.tellStatus", vec![json!(gid)]).await?;
@@ -197,13 +223,15 @@ impl Aria2 {
                     s["files"][0]["path"].as_str().and_then(|f| Path::new(f).file_name()).map(|n| n.to_string_lossy().into_owned())
                 })
                 .unwrap_or_default();
-            if !name.is_empty() {
+            // Chỉ báo khi tên/dung lượng đổi (mỗi lần báo là một lần ghi tasks.json)
+            if !name.is_empty() && last_info != (name.clone(), total) {
+                last_info = (name.clone(), total);
                 on_info(Info { dest: p.dir.join(&name), name: name.clone(), size: total });
             }
             match s["status"].as_str() {
                 // magnet: gid đầu chỉ tải metadata, tệp thật nằm ở gid "followedBy"
                 Some("complete") => match s["followedBy"][0].as_str() {
-                    Some(next) => gid = next.to_string(),
+                    Some(next) => *gid = next.to_string(),
                     None => return Ok(Outcome::Completed { dest: p.dir.join(name), size: total }),
                 },
                 Some("error") => {

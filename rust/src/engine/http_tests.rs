@@ -279,4 +279,11 @@ async fn aria2_downloads_and_cancels() {
     let p = params(format!("{base}/slow?size={}", 50 * 1024 * 1024), &dir, 4);
     let r = a2.download(&client(), &p, &Progress::default(), &cancel, |_| {}).await;
     assert!(matches!(r, Ok(Outcome::Cancelled)), "{r:?}");
+    // Hủy rồi thì aria2 phải thôi tải thật (trước đây nó tải ngầm, chiếm hết băng thông)
+    let size = || std::fs::metadata(dir.join("slow")).map(|m| m.len()).unwrap_or(0);
+    // chờ aria2 xả nốt bộ đệm ghi (dữ liệu đã nhận trước khi hủy)
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let before = size();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(size(), before, "aria2 vẫn ghi tiếp sau khi đã hủy");
 }
