@@ -314,7 +314,9 @@ async function sendToApp(url, referrer = '', filename = '', wait = false) {
 // Bắt lượt tải của trình duyệt: tạm dừng -> hỏi app -> hủy bản của trình duyệt hoặc cho tải tiếp
 chrome.downloads.onCreated.addListener(async (item) => {
   const url = item.finalUrl || item.url
-  if (!url || !/^https?:/i.test(url) || item.state === 'complete') return
+  if (!url || !/^https?:/i.test(url) || item.state !== 'in_progress') return
+  // Lúc mở trình duyệt, Chrome phát lại onCreated cho các mục cũ trong lịch sử tải: chỉ bắt lượt vừa bắt đầu
+  if (Date.now() - Date.parse(item.startTime) > 30000) return
   if (handledDownloads.has(item.id)) return
   handledDownloads.add(item.id)
   setTimeout(() => handledDownloads.delete(item.id), 180000)
